@@ -1,0 +1,12 @@
+FROM golang:1.21-alpine AS builder
+WORKDIR /app
+RUN apk add --no-cache git
+COPY . .
+RUN go mod tidy && CGO_ENABLED=0 go build -ldflags="-s -w" -o /server ./cmd/server
+
+FROM alpine:3.19
+RUN apk add --no-cache ca-certificates
+WORKDIR /root
+COPY --from=builder /server ./server
+EXPOSE 8080
+ENTRYPOINT ["./server"]

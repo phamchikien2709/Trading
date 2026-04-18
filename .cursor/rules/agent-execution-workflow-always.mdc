@@ -1,0 +1,30 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+
+# Quy trình agent: plan → code → chứng minh → học
+
+## Context
+
+- Luôn áp dụng mọi phiên chat/Cmd+K trong repo này.
+- Giảm lỗi lặp lại và tránh “cố đấm ăn xôi” khi hướng sai.
+
+## Critical Rules
+
+- Plan trước, code sau; sai giữa chừng thì dừng, plan lại, không ép tiếp khi giả định sai.
+- Việc khó / mò codebase rộng: ưu tiên sub-agent (Task) thay vì tự ôm hết.
+- Vòng học: sau mỗi lỗi hoặc insight quan trọng, ghi 1 dòng ngắn vào `memory-bank/lessons.md` (nguyên nhân + cách xử lý); phiên sau đọc file này trước khi làm việc tương tự.
+- Chưa gọi là xong nếu chưa chứng minh chạy được: chạy test/lệnh liên quan, xem log/terminal, debug khi cần.
+- Gặp bug: tự đọc log, tìm root cause, sửa trong repo; không chờ hướng dẫn từng bước.
+
+## Examples
+
+  <example>
+    Sau khi fix navigation, chạy `yarn lint` và kiểm tra Metro log; thêm vào `memory-bank/lessons.md`: “MainNavigator: params undefined khi cold start — guard route params trước khi push.”
+  </example>
+
+  <example type="invalid">
+    Code tiếp 200 dòng khi build đỏ, không đọc log, không dừng để plan lại, báo “xong” mà không chạy test hay kiểm tra output.
+  </example>

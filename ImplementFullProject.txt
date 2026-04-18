@@ -1,0 +1,1608 @@
+# Implementation Plan: Trading Journal & Social Trading Platform
+
+## Mục tiêu
+Xây dựng nền tảng cho phép trader:
+- Lưu nhật ký giao dịch (trading journal)
+- Tạo post phân tích chart (giống Facebook newsfeed)
+- Tương tác like/comment
+- Theo dõi các trader khác
+
+## Tech Stack
+- **Frontend**: React + Vite + TailwindCSS + React Query
+- **Backend**: Golang (Echo framework) + GORM
+- **Database**: PostgreSQL + Redis
+- **Storage**: Cloudinary (images)
+- **Deployment**: Docker + Nginx
+
+---
+
+## Phase 1: Setup & Database (Ngày 1-3)
+
+### 1.1 Khởi tạo project structure
+trading-platform/
+├── backend/
+│ ├── cmd/
+│ │ └── server/
+│ │ └── main.go
+│ ├── internal/
+│ │ ├── models/
+│ │ ├── handlers/
+│ │ ├── middleware/
+│ │ ├── services/
+│ │ └── database/
+│ ├── migrations/
+│ ├── go.mod
+│ └── go.sum
+├── frontend/
+│ ├── src/
+│ │ ├── components/
+│ │ ├── pages/
+│ │ ├── hooks/
+│ │ ├── services/
+│ │ └── utils/
+│ ├── public/
+│ ├── package.json
+│ └── vite.config.js
+├── docker-compose.yml
+└── README.md
+
+text
+
+### 1.2 Database Schema (PostgreSQL)
+
+```sql
+-- 1. Users table
+CREATE TABLE users (
+    id SERIAL PRIMARY KEY,
+    username VARCHAR(50) UNIQUE NOT NULL,
+    email VARCHAR(100) UNIQUE NOT NULL,
+    password_hash VARCHAR(255) NOT NULL,
+    avatar_url TEXT,
+    bio TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 2. Trading journals
+CREATE TABLE trading_journals (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    symbol VARCHAR(20) NOT NULL,
+    direction VARCHAR(4) CHECK (direction IN ('LONG', 'SHORT')),
+    entry_price DECIMAL(12,4) NOT NULL,
+    exit_price DECIMAL(12,4),
+    volume INTEGER NOT NULL,
+    pnl DECIMAL(12,4),
+    screenshot_url TEXT,
+    notes TEXT,
+    traded_at TIMESTAMP NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 3. Posts (analysis)
+CREATE TABLE posts (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    content TEXT NOT NULL,
+    chart_image_url TEXT,
+    symbols TEXT[],
+    timeframe VARCHAR(20),
+    analysis_type VARCHAR(20) DEFAULT 'technical',
+    likes_count INTEGER DEFAULT 0,
+    comments_count INTEGER DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 4. Comments
+CREATE TABLE comments (
+    id SERIAL PRIMARY KEY,
+    post_id INTEGER REFERENCES posts(id) ON DELETE CASCADE,
+    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    parent_id INTEGER REFERENCES comments(id) ON DELETE CASCADE,
+    content TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 5. Likes
+CREATE TABLE likes (
+    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    post_id INTEGER REFERENCES posts(id) ON DELETE CASCADE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (user_id, post_id)
+);
+
+-- 6. Followers
+CREATE TABLE followers (
+    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    follower_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (user_id, follower_id)
+);
+
+-- 7. Sessions (for Redis fallback)
+CREATE TABLE sessions (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    token VARCHAR(255) UNIQUE NOT NULL,
+    expires_at TIMESTAMP NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Indexes
+CREATE INDEX idx_journals_user_id ON trading_journals(user_id);
+CREATE INDEX idx_journals_traded_at ON trading_journals(traded_at);
+CREATE INDEX idx_posts_user_id ON posts(user_id);
+CREATE INDEX idx_posts_created_at ON posts(created_at DESC);
+CREATE INDEX idx_comments_post_id ON comments(post_id);
+CREATE INDEX idx_followers_user_id ON followers(user_id);
+1.3 Golang Setup
+bash
+# Init go module
+cd backend
+go mod init trading-platform
+go get -u github.com/labstack/echo/v4
+go get -u gorm.io/gorm
+go get -u gorm.io/driver/postgres
+go get -u github.com/golang-jwt/jwt/v5
+go get -u github.com/joho/godotenv
+go get -u golang.org/x/crypto/bcrypt
+File .env
+
+env
+DB_HOST=localhost
+DB_USER=postgres
+DB_PASSWORD=yourpassword
+DB_NAME=trading_platform
+DB_PORT=5432
+JWT_SECRET=your-secret-key
+REDIS_URL=localhost:6379
+CLOUDINARY_CLOUD_NAME=your_cloud_name
+CLOUDINARY_API_KEY=your_api_key
+CLOUDINARY_API_SECRET=your_api_secret
+1.4 Database Connection (backend/internal/database/db.go)
+go
+package database
+
+import (
+    "fmt"
+    "log"
+    "os"
+    "gorm.io/driver/postgres"
+    "gorm.io/gorm"
+    "gorm.io/gorm/logger"
+)
+
+var DB *gorm.DB
+
+func Connect() {
+    dsn := fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=%s sslmode=disable",
+        os.Getenv("DB_HOST"),
+        os.Getenv("DB_USER"),
+        os.Getenv("DB_PASSWORD"),
+        os.Getenv("DB_NAME"),
+        os.Getenv("DB_PORT"),
+    )
+    
+    var err error
+    DB, err = gorm.Open(postgres.Open(dsn), &gorm.Config{
+        Logger: logger.Default.LogMode(logger.Info),
+    })
+    
+    if err != nil {
+        log.Fatal("Failed to connect to database:", err)
+    }
+    
+    log.Println("Database connected successfully")
+}
+Phase 2: Backend Development (Ngày 4-10)
+2.1 Models (backend/internal/models/)
+user.go
+
+go
+package models
+
+import (
+    "time"
+    "gorm.io/gorm"
+)
+
+type User struct {
+    ID           uint      `gorm:"primaryKey" json:"id"`
+    Username     string    `gorm:"unique;not null" json:"username"`
+    Email        string    `gorm:"unique;not null" json:"email"`
+    PasswordHash string    `json:"-"`
+    AvatarURL    string    `json:"avatar_url"`
+    Bio          string    `json:"bio"`
+    CreatedAt    time.Time `json:"created_at"`
+    UpdatedAt    time.Time `json:"updated_at"`
+    
+    // Relations
+    Journals     []TradingJournal `json:"journals,omitempty"`
+    Posts        []Post           `json:"posts,omitempty"`
+}
+trading_journal.go
+
+go
+package models
+
+import (
+    "time"
+)
+
+type TradingJournal struct {
+    ID           uint      `gorm:"primaryKey" json:"id"`
+    UserID       uint      `json:"user_id"`
+    Symbol       string    `json:"symbol"`
+    Direction    string    `json:"direction"` // LONG or SHORT
+    EntryPrice   float64   `json:"entry_price"`
+    ExitPrice    float64   `json:"exit_price"`
+    Volume       int       `json:"volume"`
+    PnL          float64   `json:"pnl"`
+    ScreenshotURL string   `json:"screenshot_url"`
+    Notes        string    `json:"notes"`
+    TradedAt     time.Time `json:"traded_at"`
+    CreatedAt    time.Time `json:"created_at"`
+    UpdatedAt    time.Time `json:"updated_at"`
+}
+post.go
+
+go
+package models
+
+import (
+    "time"
+    "github.com/lib/pq"
+)
+
+type Post struct {
+    ID            uint           `gorm:"primaryKey" json:"id"`
+    UserID        uint           `json:"user_id"`
+    Content       string         `json:"content"`
+    ChartImageURL string         `json:"chart_image_url"`
+    Symbols       pq.StringArray `gorm:"type:text[]" json:"symbols"`
+    Timeframe     string         `json:"timeframe"`
+    AnalysisType  string         `json:"analysis_type"`
+    LikesCount    int            `json:"likes_count"`
+    CommentsCount int            `json:"comments_count"`
+    CreatedAt     time.Time      `json:"created_at"`
+    UpdatedAt     time.Time      `json:"updated_at"`
+    
+    // Relations
+    User          User           `json:"user,omitempty"`
+    Comments      []Comment      `json:"comments,omitempty"`
+}
+2.2 Auth Middleware & JWT
+backend/internal/middleware/auth.go
+
+go
+package middleware
+
+import (
+    "net/http"
+    "strings"
+    "github.com/golang-jwt/jwt/v5"
+    "github.com/labstack/echo/v4"
+)
+
+func AuthMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
+    return func(c echo.Context) error {
+        authHeader := c.Request().Header.Get("Authorization")
+        if authHeader == "" {
+            return c.JSON(http.StatusUnauthorized, map[string]string{"error": "Missing token"})
+        }
+        
+        tokenString := strings.TrimPrefix(authHeader, "Bearer ")
+        claims := jwt.MapClaims{}
+        
+        token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
+            return []byte(os.Getenv("JWT_SECRET")), nil
+        })
+        
+        if err != nil || !token.Valid {
+            return c.JSON(http.StatusUnauthorized, map[string]string{"error": "Invalid token"})
+        }
+        
+        userID := uint(claims["user_id"].(float64))
+        c.Set("user_id", userID)
+        
+        return next(c)
+    }
+}
+2.3 Handlers
+backend/internal/handlers/auth.go
+
+go
+package handlers
+
+import (
+    "net/http"
+    "time"
+    "github.com/golang-jwt/jwt/v5"
+    "github.com/labstack/echo/v4"
+    "golang.org/x/crypto/bcrypt"
+    "trading-platform/internal/models"
+    "trading-platform/internal/database"
+)
+
+type LoginRequest struct {
+    Email    string `json:"email" validate:"required,email"`
+    Password string `json:"password" validate:"required"`
+}
+
+type RegisterRequest struct {
+    Username string `json:"username" validate:"required"`
+    Email    string `json:"email" validate:"required,email"`
+    Password string `json:"password" validate:"required,min=6"`
+}
+
+func Register(c echo.Context) error {
+    var req RegisterRequest
+    if err := c.Bind(&req); err != nil {
+        return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid request"})
+    }
+    
+    // Hash password
+    hashedPassword, _ := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+    
+    user := models.User{
+        Username:     req.Username,
+        Email:        req.Email,
+        PasswordHash: string(hashedPassword),
+    }
+    
+    result := database.DB.Create(&user)
+    if result.Error != nil {
+        return c.JSON(http.StatusConflict, map[string]string{"error": "User already exists"})
+    }
+    
+    return c.JSON(http.StatusCreated, map[string]interface{}{
+        "message": "User created successfully",
+        "user_id": user.ID,
+    })
+}
+
+func Login(c echo.Context) error {
+    var req LoginRequest
+    if err := c.Bind(&req); err != nil {
+        return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid request"})
+    }
+    
+    var user models.User
+    result := database.DB.Where("email = ?", req.Email).First(&user)
+    if result.Error != nil {
+        return c.JSON(http.StatusUnauthorized, map[string]string{"error": "Invalid credentials"})
+    }
+    
+    err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password))
+    if err != nil {
+        return c.JSON(http.StatusUnauthorized, map[string]string{"error": "Invalid credentials"})
+    }
+    
+    // Generate JWT
+    token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+        "user_id": user.ID,
+        "exp":     time.Now().Add(time.Hour * 24).Unix(),
+    })
+    
+    tokenString, _ := token.SignedString([]byte(os.Getenv("JWT_SECRET")))
+    
+    return c.JSON(http.StatusOK, map[string]interface{}{
+        "token": tokenString,
+        "user": map[string]interface{}{
+            "id":       user.ID,
+            "username": user.Username,
+            "email":    user.Email,
+            "avatar":   user.AvatarURL,
+        },
+    })
+}
+backend/internal/handlers/journal.go
+
+go
+package handlers
+
+import (
+    "net/http"
+    "strconv"
+    "github.com/labstack/echo/v4"
+    "trading-platform/internal/models"
+    "trading-platform/internal/database"
+)
+
+func GetUserJournals(c echo.Context) error {
+    userID := c.Get("user_id").(uint)
+    
+    var journals []models.TradingJournal
+    database.DB.Where("user_id = ?", userID).Order("traded_at DESC").Find(&journals)
+    
+    return c.JSON(http.StatusOK, journals)
+}
+
+func CreateJournal(c echo.Context) error {
+    userID := c.Get("user_id").(uint)
+    
+    var journal models.TradingJournal
+    if err := c.Bind(&journal); err != nil {
+        return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid request"})
+    }
+    
+    journal.UserID = userID
+    // Calculate PnL
+    if journal.Direction == "LONG" {
+        journal.PnL = (journal.ExitPrice - journal.EntryPrice) * float64(journal.Volume)
+    } else {
+        journal.PnL = (journal.EntryPrice - journal.ExitPrice) * float64(journal.Volume)
+    }
+    
+    database.DB.Create(&journal)
+    return c.JSON(http.StatusCreated, journal)
+}
+
+func UpdateJournal(c echo.Context) error {
+    id, _ := strconv.Atoi(c.Param("id"))
+    userID := c.Get("user_id").(uint)
+    
+    var journal models.TradingJournal
+    if database.DB.Where("id = ? AND user_id = ?", id, userID).First(&journal).Error != nil {
+        return c.JSON(http.StatusNotFound, map[string]string{"error": "Journal not found"})
+    }
+    
+    var updates models.TradingJournal
+    c.Bind(&updates)
+    
+    database.DB.Model(&journal).Updates(updates)
+    return c.JSON(http.StatusOK, journal)
+}
+
+func DeleteJournal(c echo.Context) error {
+    id, _ := strconv.Atoi(c.Param("id"))
+    userID := c.Get("user_id").(uint)
+    
+    result := database.DB.Where("id = ? AND user_id = ?", id, userID).Delete(&models.TradingJournal{})
+    if result.RowsAffected == 0 {
+        return c.JSON(http.StatusNotFound, map[string]string{"error": "Journal not found"})
+    }
+    
+    return c.JSON(http.StatusOK, map[string]string{"message": "Deleted successfully"})
+}
+backend/internal/handlers/post.go
+
+go
+package handlers
+
+import (
+    "net/http"
+    "strconv"
+    "github.com/labstack/echo/v4"
+    "trading-platform/internal/models"
+    "trading-platform/internal/database"
+)
+
+func GetNewsfeed(c echo.Context) error {
+    userID := c.Get("user_id").(uint)
+    
+    var posts []models.Post
+    
+    // Get posts from followed users + own posts
+    query := database.DB.Table("posts").
+        Select("posts.*, users.username, users.avatar_url").
+        Joins("JOIN users ON users.id = posts.user_id").
+        Where("posts.user_id IN (?) OR posts.user_id = ?",
+            database.DB.Table("followers").Select("user_id").Where("follower_id = ?", userID),
+            userID).
+        Order("posts.created_at DESC").
+        Limit(20)
+    
+    query.Find(&posts)
+    
+    // Check if current user liked each post
+    for i := range posts {
+        var likeCount int64
+        database.DB.Model(&models.Like{}).
+            Where("post_id = ? AND user_id = ?", posts[i].ID, userID).
+            Count(&likeCount)
+        // Add field to response if needed
+    }
+    
+    return c.JSON(http.StatusOK, posts)
+}
+
+func CreatePost(c echo.Context) error {
+    userID := c.Get("user_id").(uint)
+    
+    var post models.Post
+    if err := c.Bind(&post); err != nil {
+        return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid request"})
+    }
+    
+    post.UserID = userID
+    database.DB.Create(&post)
+    
+    // Load user data
+    database.DB.Model(&post).Association("User").Find(&post.User)
+    
+    return c.JSON(http.StatusCreated, post)
+}
+
+func LikePost(c echo.Context) error {
+    postID, _ := strconv.Atoi(c.Param("id"))
+    userID := c.Get("user_id").(uint)
+    
+    like := models.Like{
+        UserID: userID,
+        PostID: uint(postID),
+    }
+    
+    result := database.DB.Create(&like)
+    if result.Error != nil {
+        return c.JSON(http.StatusConflict, map[string]string{"error": "Already liked"})
+    }
+    
+    // Increment likes count
+    database.DB.Model(&models.Post{}).Where("id = ?", postID).Update("likes_count", database.DB.Raw("likes_count + 1"))
+    
+    return c.JSON(http.StatusOK, map[string]string{"message": "Liked successfully"})
+}
+
+func UnlikePost(c echo.Context) error {
+    postID, _ := strconv.Atoi(c.Param("id"))
+    userID := c.Get("user_id").(uint)
+    
+    database.DB.Where("user_id = ? AND post_id = ?", userID, postID).Delete(&models.Like{})
+    database.DB.Model(&models.Post{}).Where("id = ?", postID).Update("likes_count", database.DB.Raw("likES_count - 1"))
+    
+    return c.JSON(http.StatusOK, map[string]string{"message": "Unliked successfully"})
+}
+
+func AddComment(c echo.Context) error {
+    postID, _ := strconv.Atoi(c.Param("id"))
+    userID := c.Get("user_id").(uint)
+    
+    var req struct {
+        Content string `json:"content"`
+    }
+    c.Bind(&req)
+    
+    comment := models.Comment{
+        PostID:  uint(postID),
+        UserID:  userID,
+        Content: req.Content,
+    }
+    
+    database.DB.Create(&comment)
+    
+    // Increment comments count
+    database.DB.Model(&models.Post{}).Where("id = ?", postID).Update("comments_count", database.DB.Raw("comments_count + 1"))
+    
+    return c.JSON(http.StatusCreated, comment)
+}
+2.4 Routes Setup
+backend/cmd/server/main.go
+
+go
+package main
+
+import (
+    "log"
+    "os"
+    "github.com/joho/godotenv"
+    "github.com/labstack/echo/v4"
+    "github.com/labstack/echo/v4/middleware"
+    "trading-platform/internal/database"
+    "trading-platform/internal/handlers"
+    authMiddleware "trading-platform/internal/middleware"
+)
+
+func main() {
+    // Load env
+    godotenv.Load()
+    
+    // Connect database
+    database.Connect()
+    
+    // Create Echo instance
+    e := echo.New()
+    
+    // Middleware
+    e.Use(middleware.Logger())
+    e.Use(middleware.Recover())
+    e.Use(middleware.CORS())
+    
+    // Public routes
+    e.POST("/api/register", handlers.Register)
+    e.POST("/api/login", handlers.Login)
+    
+    // Protected routes
+    api := e.Group("/api")
+    api.Use(authMiddleware.AuthMiddleware)
+    
+    // Journal routes
+    api.GET("/journals", handlers.GetUserJournals)
+    api.POST("/journals", handlers.CreateJournal)
+    api.PUT("/journals/:id", handlers.UpdateJournal)
+    api.DELETE("/journals/:id", handlers.DeleteJournal)
+    
+    // Post routes
+    api.GET("/feed", handlers.GetNewsfeed)
+    api.POST("/posts", handlers.CreatePost)
+    api.POST("/posts/:id/like", handlers.LikePost)
+    api.DELETE("/posts/:id/like", handlers.UnlikePost)
+    api.POST("/posts/:id/comments", handlers.AddComment)
+    
+    // User routes
+    api.GET("/profile", handlers.GetProfile)
+    api.PUT("/profile", handlers.UpdateProfile)
+    api.POST("/follow/:id", handlers.FollowUser)
+    api.DELETE("/follow/:id", handlers.UnfollowUser)
+    
+    // Start server
+    port := os.Getenv("PORT")
+    if port == "" {
+        port = "8080"
+    }
+    
+    log.Printf("Server starting on :%s", port)
+    e.Start(":" + port)
+}
+Phase 3: Frontend Development (Ngày 11-20)
+3.1 React Project Setup
+bash
+# Create React app with Vite
+npm create vite@latest frontend -- --template react
+cd frontend
+npm install
+
+# Install dependencies
+npm install react-router-dom axios @tanstack/react-query
+npm install tailwindcss postcss autoprefixer
+npm install react-hook-form zod @hookform/resolvers
+npm install react-hot-toast lucide-react
+npm install recharts react-image-crop
+
+# Initialize Tailwind
+npx tailwindcss init -p
+3.2 Configure Tailwind
+tailwind.config.js
+
+javascript
+/** @type {import('tailwindcss').Config} */
+export default {
+  content: [
+    "./index.html",
+    "./src/**/*.{js,ts,jsx,tsx}",
+  ],
+  theme: {
+    extend: {
+      colors: {
+        primary: {
+          50: '#eff6ff',
+          500: '#3b82f6',
+          600: '#2563eb',
+          700: '#1d4ed8',
+        }
+      }
+    },
+  },
+  plugins: [],
+}
+3.3 API Service
+src/services/api.js
+
+javascript
+import axios from 'axios';
+
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080/api';
+
+const api = axios.create({
+  baseURL: API_URL,
+  headers: {
+    'Content-Type': 'application/json',
+  },
+});
+
+// Request interceptor to add token
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem('token');
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
+
+// Auth APIs
+export const authAPI = {
+  register: (data) => api.post('/register', data),
+  login: (data) => api.post('/login', data),
+  getProfile: () => api.get('/profile'),
+  updateProfile: (data) => api.put('/profile', data),
+};
+
+// Journal APIs
+export const journalAPI = {
+  getAll: () => api.get('/journals'),
+  create: (data) => api.post('/journals', data),
+  update: (id, data) => api.put(`/journals/${id}`, data),
+  delete: (id) => api.delete(`/journals/${id}`),
+};
+
+// Post APIs
+export const postAPI = {
+  getFeed: () => api.get('/feed'),
+  create: (data) => api.post('/posts', data),
+  like: (id) => api.post(`/posts/${id}/like`),
+  unlike: (id) => api.delete(`/posts/${id}/like`),
+  comment: (id, content) => api.post(`/posts/${id}/comments`, { content }),
+};
+
+// Follow APIs
+export const followAPI = {
+  follow: (userId) => api.post(`/follow/${userId}`),
+  unfollow: (userId) => api.delete(`/follow/${userId}`),
+};
+
+export default api;
+3.4 Main Layout Components
+src/App.jsx
+
+jsx
+import React from 'react';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { Toaster } from 'react-hot-toast';
+import Login from './pages/Login';
+import Register from './pages/Register';
+import Dashboard from './pages/Dashboard';
+import Journal from './pages/Journal';
+import Feed from './pages/Feed';
+import CreatePost from './pages/CreatePost';
+import PostDetail from './pages/PostDetail';
+import Profile from './pages/Profile';
+import Layout from './components/Layout';
+
+const queryClient = new QueryClient();
+
+function PrivateRoute({ children }) {
+  const token = localStorage.getItem('token');
+  return token ? children : <Navigate to="/login" />;
+}
+
+function App() {
+  return (
+    <QueryClientProvider client={queryClient}>
+      <BrowserRouter>
+        <Toaster position="top-right" />
+        <Routes>
+          <Route path="/login" element={<Login />} />
+          <Route path="/register" element={<Register />} />
+          
+          <Route path="/" element={
+            <PrivateRoute>
+              <Layout />
+            </PrivateRoute>
+          }>
+            <Route index element={<Dashboard />} />
+            <Route path="journal" element={<Journal />} />
+            <Route path="feed" element={<Feed />} />
+            <Route path="create-post" element={<CreatePost />} />
+            <Route path="post/:id" element={<PostDetail />} />
+            <Route path="profile" element={<Profile />} />
+          </Route>
+        </Routes>
+      </BrowserRouter>
+    </QueryClientProvider>
+  );
+}
+
+export default App;
+src/components/Layout.jsx
+
+jsx
+import React from 'react';
+import { Outlet, Link, useNavigate } from 'react-router-dom';
+import { Home, BookOpen, Newspaper, PlusCircle, User, LogOut } from 'lucide-react';
+import toast from 'react-hot-toast';
+
+export default function Layout() {
+  const navigate = useNavigate();
+  
+  const handleLogout = () => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    toast.success('Logged out successfully');
+    navigate('/login');
+  };
+  
+  return (
+    <div className="min-h-screen bg-gray-50">
+      {/* Sidebar */}
+      <aside className="fixed left-0 top-0 h-full w-64 bg-white shadow-lg">
+        <div className="p-6">
+          <h1 className="text-2xl font-bold text-primary-600">Trading Journal</h1>
+        </div>
+        
+        <nav className="mt-8">
+          <Link to="/" className="flex items-center px-6 py-3 text-gray-700 hover:bg-primary-50 hover:text-primary-600">
+            <Home className="w-5 h-5 mr-3" />
+            Dashboard
+          </Link>
+          <Link to="/journal" className="flex items-center px-6 py-3 text-gray-700 hover:bg-primary-50 hover:text-primary-600">
+            <BookOpen className="w-5 h-5 mr-3" />
+            Trading Journal
+          </Link>
+          <Link to="/feed" className="flex items-center px-6 py-3 text-gray-700 hover:bg-primary-50 hover:text-primary-600">
+            <Newspaper className="w-5 h-5 mr-3" />
+            Newsfeed
+          </Link>
+          <Link to="/create-post" className="flex items-center px-6 py-3 text-gray-700 hover:bg-primary-50 hover:text-primary-600">
+            <PlusCircle className="w-5 h-5 mr-3" />
+            Create Post
+          </Link>
+          <Link to="/profile" className="flex items-center px-6 py-3 text-gray-700 hover:bg-primary-50 hover:text-primary-600">
+            <User className="w-5 h-5 mr-3" />
+            Profile
+          </Link>
+        </nav>
+        
+        <button
+          onClick={handleLogout}
+          className="absolute bottom-8 left-6 flex items-center text-gray-700 hover:text-red-600"
+        >
+          <LogOut className="w-5 h-5 mr-3" />
+          Logout
+        </button>
+      </aside>
+      
+      {/* Main content */}
+      <main className="ml-64 p-8">
+        <Outlet />
+      </main>
+    </div>
+  );
+}
+3.5 Trading Journal Page
+src/pages/Journal.jsx
+
+jsx
+import React, { useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { Plus, Edit2, Trash2, TrendingUp, TrendingDown } from 'lucide-react';
+import toast from 'react-hot-toast';
+import { journalAPI } from '../services/api';
+import JournalForm from '../components/JournalForm';
+
+export default function Journal() {
+  const [showForm, setShowForm] = useState(false);
+  const [editingJournal, setEditingJournal] = useState(null);
+  const queryClient = useQueryClient();
+  
+  const { data: journals, isLoading } = useQuery({
+    queryKey: ['journals'],
+    queryFn: () => journalAPI.getAll().then(res => res.data),
+  });
+  
+  const deleteMutation = useMutation({
+    mutationFn: (id) => journalAPI.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries(['journals']);
+      toast.success('Journal entry deleted');
+    },
+  });
+  
+  const getPnLColor = (pnl) => {
+    if (pnl > 0) return 'text-green-600';
+    if (pnl < 0) return 'text-red-600';
+    return 'text-gray-600';
+  };
+  
+  if (isLoading) return <div className="text-center py-8">Loading...</div>;
+  
+  return (
+    <div>
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="text-2xl font-bold">📘 Trading Journal</h1>
+        <button
+          onClick={() => setShowForm(true)}
+          className="flex items-center px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
+        >
+          <Plus className="w-5 h-5 mr-2" />
+          New Trade
+        </button>
+      </div>
+      
+      {/* Stats Summary */}
+      {journals && journals.length > 0 && (
+        <div className="grid grid-cols-4 gap-4 mb-6">
+          <div className="bg-white p-4 rounded-lg shadow">
+            <p className="text-gray-500 text-sm">Total Trades</p>
+            <p className="text-2xl font-bold">{journals.length}</p>
+          </div>
+          <div className="bg-white p-4 rounded-lg shadow">
+            <p className="text-gray-500 text-sm">Win Rate</p>
+            <p className="text-2xl font-bold">
+              {Math.round((journals.filter(j => j.pnl > 0).length / journals.length) * 100)}%
+            </p>
+          </div>
+          <div className="bg-white p-4 rounded-lg shadow">
+            <p className="text-gray-500 text-sm">Total P&L</p>
+            <p className={`text-2xl font-bold ${getPnLColor(journals.reduce((sum, j) => sum + j.pnl, 0))}`}>
+              ${journals.reduce((sum, j) => sum + j.pnl, 0).toFixed(2)}
+            </p>
+          </div>
+          <div className="bg-white p-4 rounded-lg shadow">
+            <p className="text-gray-500 text-sm">Avg P&L</p>
+            <p className={`text-2xl font-bold ${getPnLColor(journals.reduce((sum, j) => sum + j.pnl, 0) / journals.length)}`}>
+              ${(journals.reduce((sum, j) => sum + j.pnl, 0) / journals.length).toFixed(2)}
+            </p>
+          </div>
+        </div>
+      )}
+      
+      {/* Journal Table */}
+      <div className="bg-white rounded-lg shadow overflow-hidden">
+        <table className="w-full">
+          <thead className="bg-gray-50">
+            <tr>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Symbol</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Direction</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Entry</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Exit</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Volume</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">P&L</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-200">
+            {journals?.map((journal) => (
+              <tr key={journal.id} className="hover:bg-gray-50">
+                <td className="px-6 py-4 font-medium">{journal.symbol}</td>
+                <td className="px-6 py-4">
+                  <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                    journal.direction === 'LONG' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                  }`}>
+                    {journal.direction === 'LONG' ? <TrendingUp className="w-3 h-3 mr-1" /> : <TrendingDown className="w-3 h-3 mr-1" />}
+                    {journal.direction}
+                  </span>
+                </td>
+                <td className="px-6 py-4">${journal.entry_price}</td>
+                <td className="px-6 py-4">${journal.exit_price}</td>
+                <td className="px-6 py-4">{journal.volume}</td>
+                <td className={`px-6 py-4 font-semibold ${getPnLColor(journal.pnl)}`}>
+                  ${journal.pnl.toFixed(2)}
+                </td>
+                <td className="px-6 py-4">{new Date(journal.traded_at).toLocaleDateString()}</td>
+                <td className="px-6 py-4">
+                  <button
+                    onClick={() => setEditingJournal(journal)}
+                    className="text-blue-600 hover:text-blue-800 mr-3"
+                  >
+                    <Edit2 className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => deleteMutation.mutate(journal.id)}
+                    className="text-red-600 hover:text-red-800"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      
+      {showForm && (
+        <JournalForm
+          onClose={() => setShowForm(false)}
+          onSuccess={() => {
+            setShowForm(false);
+            queryClient.invalidateQueries(['journals']);
+          }}
+        />
+      )}
+      
+      {editingJournal && (
+        <JournalForm
+          journal={editingJournal}
+          onClose={() => setEditingJournal(null)}
+          onSuccess={() => {
+            setEditingJournal(null);
+            queryClient.invalidateQueries(['journals']);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+3.6 Newsfeed Component
+src/components/PostCard.jsx
+
+jsx
+import React, { useState } from 'react';
+import { Heart, MessageCircle, Share2, MoreHorizontal } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
+import { postAPI } from '../services/api';
+import toast from 'react-hot-toast';
+
+export default function PostCard({ post, isLiked: initialLiked }) {
+  const [isLiked, setIsLiked] = useState(initialLiked);
+  const [likesCount, setLikesCount] = useState(post.likes_count);
+  const [showComments, setShowComments] = useState(false);
+  const queryClient = useQueryClient();
+  
+  const handleLike = async () => {
+    try {
+      if (isLiked) {
+        await postAPI.unlike(post.id);
+        setLikesCount(prev => prev - 1);
+      } else {
+        await postAPI.like(post.id);
+        setLikesCount(prev => prev + 1);
+      }
+      setIsLiked(!isLiked);
+    } catch (error) {
+      toast.error('Failed to like/unlike');
+    }
+  };
+  
+  return (
+    <div className="bg-white rounded-lg shadow mb-6">
+      {/* Post header */}
+      <div className="p-4 border-b">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center">
+            <img
+              src={post.user?.avatar_url || `https://ui-avatars.com/api/?name=${post.user?.username}`}
+              alt={post.user?.username}
+              className="w-10 h-10 rounded-full"
+            />
+            <div className="ml-3">
+              <p className="font-semibold">{post.user?.username}</p>
+              <p className="text-sm text-gray-500">{new Date(post.created_at).toLocaleString()}</p>
+            </div>
+          </div>
+          <button className="text-gray-400 hover:text-gray-600">
+            <MoreHorizontal className="w-5 h-5" />
+          </button>
+        </div>
+      </div>
+      
+      {/* Post content */}
+      <div className="p-4">
+        <p className="mb-3">{post.content}</p>
+        
+        {/* Symbols tags */}
+        {post.symbols && post.symbols.length > 0 && (
+          <div className="flex gap-2 mb-3">
+            {post.symbols.map(symbol => (
+              <span key={symbol} className="px-2 py-1 bg-primary-100 text-primary-700 text-xs rounded">
+                {symbol}
+              </span>
+            ))}
+          </div>
+        )}
+        
+        {/* Chart image */}
+        {post.chart_image_url && (
+          <img
+            src={post.chart_image_url}
+            alt="Chart analysis"
+            className="rounded-lg w-full max-h-96 object-contain bg-gray-900"
+          />
+        )}
+        
+        {/* Analysis info */}
+        {post.timeframe && (
+          <div className="mt-3 text-sm text-gray-500">
+            Timeframe: {post.timeframe} • Analysis: {post.analysis_type}
+          </div>
+        )}
+      </div>
+      
+      {/* Actions */}
+      <div className="px-4 py-2 border-t border-b flex items-center justify-around">
+        <button
+          onClick={handleLike}
+          className={`flex items-center gap-2 px-4 py-2 rounded-lg transition ${
+            isLiked ? 'text-red-500' : 'text-gray-600 hover:bg-gray-100'
+          }`}
+        >
+          <Heart className={`w-5 h-5 ${isLiked ? 'fill-current' : ''}`} />
+          <span>{likesCount}</span>
+        </button>
+        
+        <button
+          onClick={() => setShowComments(!showComments)}
+          className="flex items-center gap-2 px-4 py-2 rounded-lg text-gray-600 hover:bg-gray-100"
+        >
+          <MessageCircle className="w-5 h-5" />
+          <span>{post.comments_count}</span>
+        </button>
+        
+        <button className="flex items-center gap-2 px-4 py-2 rounded-lg text-gray-600 hover:bg-gray-100">
+          <Share2 className="w-5 h-5" />
+          <span>Share</span>
+        </button>
+      </div>
+      
+      {/* Comments section */}
+      {showComments && (
+        <div className="p-4 bg-gray-50 rounded-b-lg">
+          <CommentSection postId={post.id} />
+        </div>
+      )}
+    </div>
+  );
+}
+Phase 4: Image Upload & Storage (Ngày 21-22)
+4.1 Cloudinary Integration (Backend)
+backend/internal/services/upload.go
+
+go
+package services
+
+import (
+    "context"
+    "mime/multipart"
+    "os"
+    "github.com/cloudinary/cloudinary-go/v2"
+    "github.com/cloudinary/cloudinary-go/v2/api/uploader"
+)
+
+var cld *cloudinary.Cloudinary
+
+func InitCloudinary() error {
+    var err error
+    cld, err = cloudinary.NewFromParams(
+        os.Getenv("CLOUDINARY_CLOUD_NAME"),
+        os.Getenv("CLOUDINARY_API_KEY"),
+        os.Getenv("CLOUDINARY_API_SECRET"),
+    )
+    return err
+}
+
+func UploadImage(file multipart.File, fileHeader *multipart.FileHeader) (string, error) {
+    ctx := context.Background()
+    
+    uploadResult, err := cld.Upload.Upload(ctx, file, uploader.UploadParams{
+        Folder: "trading-platform",
+    })
+    
+    if err != nil {
+        return "", err
+    }
+    
+    return uploadResult.SecureURL, nil
+}
+backend/internal/handlers/upload.go
+
+go
+package handlers
+
+import (
+    "net/http"
+    "github.com/labstack/echo/v4"
+    "trading-platform/internal/services"
+)
+
+func UploadImage(c echo.Context) error {
+    file, err := c.FormFile("image")
+    if err != nil {
+        return c.JSON(http.StatusBadRequest, map[string]string{"error": "No file uploaded"})
+    }
+    
+    src, err := file.Open()
+    if err != nil {
+        return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to open file"})
+    }
+    defer src.Close()
+    
+    imageURL, err := services.UploadImage(src, file)
+    if err != nil {
+        return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to upload"})
+    }
+    
+    return c.JSON(http.StatusOK, map[string]string{"url": imageURL})
+}
+4.2 Frontend Upload Component
+src/components/ImageUpload.jsx
+
+jsx
+import React, { useState } from 'react';
+import { Upload, X } from 'lucide-react';
+import toast from 'react-hot-toast';
+import api from '../services/api';
+
+export default function ImageUpload({ onUpload, currentImage }) {
+  const [uploading, setUploading] = useState(false);
+  const [preview, setPreview] = useState(currentImage);
+  
+  const handleFileChange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    
+    // Preview
+    const reader = new FileReader();
+    reader.onloadend = () => setPreview(reader.result);
+    reader.readAsDataURL(file);
+    
+    // Upload
+    setUploading(true);
+    const formData = new FormData();
+    formData.append('image', file);
+    
+    try {
+      const response = await api.post('/upload', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      onUpload(response.data.url);
+      toast.success('Image uploaded successfully');
+    } catch (error) {
+      toast.error('Failed to upload image');
+      setPreview(currentImage);
+    } finally {
+      setUploading(false);
+    }
+  };
+  
+  return (
+    <div className="relative">
+      {preview ? (
+        <div className="relative inline-block">
+          <img src={preview} alt="Preview" className="max-h-64 rounded-lg" />
+          <button
+            onClick={() => {
+              setPreview(null);
+              onUpload(null);
+            }}
+            className="absolute top-2 right-2 p-1 bg-red-500 text-white rounded-full hover:bg-red-600"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      ) : (
+        <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-primary-500">
+          <div className="flex flex-col items-center justify-center">
+            <Upload className="w-8 h-8 text-gray-400" />
+            <p className="text-sm text-gray-500">Click to upload chart image</p>
+          </div>
+          <input type="file" accept="image/*" onChange={handleFileChange} className="hidden" />
+        </label>
+      )}
+      {uploading && <div className="absolute inset-0 flex items-center justify-center bg-white bg-opacity-75">Uploading...</div>}
+    </div>
+  );
+}
+Phase 5: Docker & Deployment (Ngày 23-25)
+5.1 Docker Configuration
+docker-compose.yml
+
+yaml
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - trading_network
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    networks:
+      - trading_network
+
+  backend:
+    build: ./backend
+    ports:
+      - "8080:8080"
+    depends_on:
+      - postgres
+      - redis
+    environment:
+      DB_HOST: postgres
+      REDIS_URL: redis:6379
+    networks:
+      - trading_network
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    networks:
+      - trading_network
+
+volumes:
+  postgres_data:
+
+networks:
+  trading_network:
+    driver: bridge
+backend/Dockerfile
+
+dockerfile
+FROM golang:1.21-alpine AS builder
+WORKDIR /app
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN go build -o main cmd/server/main.go
+
+FROM alpine:latest
+RUN apk --no-cache add ca-certificates
+WORKDIR /root/
+COPY --from=builder /app/main .
+COPY --from=builder /app/.env .
+EXPOSE 8080
+CMD ["./main"]
+frontend/Dockerfile
+
+dockerfile
+FROM node:18-alpine AS builder
+WORKDIR /app
+COPY package*.json ./
+RUN npm install
+COPY . .
+RUN npm run build
+
+FROM nginx:alpine
+COPY --from=builder /app/dist /usr/share/nginx/html
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+EXPOSE 80
+CMD ["nginx", "-g", "daemon off;"]
+5.2 Deployment Commands
+bash
+# Build and run with Docker
+docker-compose up -d --build
+
+# Check logs
+docker-compose logs -f
+
+# Stop all services
+docker-compose down
+
+# Backup database
+docker exec trading-platform_postgres_1 pg_dump -U postgres trading_platform > backup.sql
+
+# Restore database
+cat backup.sql | docker exec -i trading-platform_postgres_1 psql -U postgres trading_platform
+Phase 6: Testing & Optimization (Ngày 26-28)
+6.1 Backend Testing
+backend/internal/handlers/handlers_test.go
+
+go
+package handlers
+
+import (
+    "bytes"
+    "encoding/json"
+    "net/http"
+    "net/http/httptest"
+    "testing"
+    "github.com/labstack/echo/v4"
+    "github.com/stretchr/testify/assert"
+)
+
+func TestLoginHandler(t *testing.T) {
+    e := echo.New()
+    
+    reqBody := LoginRequest{
+        Email:    "test@example.com",
+        Password: "password123",
+    }
+    
+    jsonBody, _ := json.Marshal(reqBody)
+    req := httptest.NewRequest(http.MethodPost, "/login", bytes.NewReader(jsonBody))
+    req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+    rec := httptest.NewRecorder()
+    c := e.NewContext(req, rec)
+    
+    if assert.NoError(t, Login(c)) {
+        assert.Equal(t, http.StatusOK, rec.Code)
+    }
+}
+6.2 Performance Optimizations
+Add indexes in PostgreSQL:
+
+sql
+-- Composite indexes for common queries
+CREATE INDEX CONCURRENTLY idx_journals_user_pnl ON trading_journals(user_id, pnl);
+CREATE INDEX CONCURRENTLY idx_posts_symbols ON posts USING GIN(symbols);
+CREATE INDEX CONCURRENTLY idx_posts_user_time ON posts(user_id, created_at DESC);
+Implement Redis caching for feed:
+
+go
+// backend/internal/cache/feed.go
+func CacheUserFeed(userID uint, posts []models.Post) {
+    key := fmt.Sprintf("feed:user:%d", userID)
+    data, _ := json.Marshal(posts)
+    redisClient.Set(context.Background(), key, data, 5*time.Minute)
+}
+
+func GetCachedFeed(userID uint) ([]models.Post, error) {
+    key := fmt.Sprintf("feed:user:%d", userID)
+    data, err := redisClient.Get(context.Background(), key).Bytes()
+    if err != nil {
+        return nil, err
+    }
+    
+    var posts []models.Post
+    json.Unmarshal(data, &posts)
+    return posts, nil
+}
+Phase 7: Additional Features (Optional - Ngày 29-30)
+7.1 WebSocket for Real-time Notifications
+go
+// backend/internal/websocket/hub.go
+type Hub struct {
+    clients    map[*Client]bool
+    broadcast  chan []byte
+    register   chan *Client
+    unregister chan *Client
+}
+
+func (h *Hub) Run() {
+    for {
+        select {
+        case client := <-h.register:
+            h.clients[client] = true
+        case client := <-h.unregister:
+            if _, ok := h.clients[client]; ok {
+                delete(h.clients, client)
+                close(client.send)
+            }
+        case message := <-h.broadcast:
+            for client := range h.clients {
+                select {
+                case client.send <- message:
+                default:
+                    close(client.send)
+                    delete(h.clients, client)
+                }
+            }
+        }
+    }
+}
+7.2 Export Trading Journal to CSV
+go
+func ExportJournalToCSV(c echo.Context) error {
+    userID := c.Get("user_id").(uint)
+    
+    var journals []models.TradingJournal
+    database.DB.Where("user_id = ?", userID).Find(&journals)
+    
+    csvFile, _ := os.Create("journal_export.csv")
+    writer := csv.NewWriter(csvFile)
+    
+    writer.Write([]string{"Symbol", "Direction", "Entry", "Exit", "Volume", "PnL", "Date"})
+    for _, j := range journals {
+        writer.Write([]string{
+            j.Symbol,
+            j.Direction,
+            fmt.Sprintf("%f", j.EntryPrice),
+            fmt.Sprintf("%f", j.ExitPrice),
+            fmt.Sprintf("%d", j.Volume),
+            fmt.Sprintf("%f", j.PnL),
+            j.TradedAt.Format("2006-01-02"),
+        })
+    }
+    writer.Flush()
+    
+    return c.Attachment(csvFile, "journal.csv")
+}
+Checklist Hoàn Thành Dự Án
+Phase 1: Setup ✅
+Tạo project structure
+
+Cài đặt PostgreSQL
+
+Tạo database schema
+
+Setup Golang với Echo
+
+Cấu hình environment variables
+
+Phase 2: Backend ✅
+Implement JWT authentication
+
+CRUD APIs cho trading journal
+
+CRUD APIs cho posts
+
+Like/comment functionality
+
+Follow/unfollow users
+
+Newsfeed API
+
+Phase 3: Frontend ✅
+Login/Register pages
+
+Dashboard với thống kê
+
+Trading journal table + form
+
+Newsfeed với posts
+
+Create post với chart upload
+
+Profile page
+
+Phase 4: Storage ✅
+Cloudinary account setup
+
+Image upload API
+
+Frontend upload component
+
+Phase 5: Deployment ✅
+Dockerfile cho backend
+
+Dockerfile cho frontend
+
+docker-compose.yml
+
+Deploy lên VPS (DigitalOcean/AWS)
+
+Phase 6: Testing ✅
+Unit tests cho APIs
+
+Integration tests
+
+Load testing (k6 hoặc artillery)
+
+Phase 7: Launch 🚀
+Domain setup
+
+SSL certificate (Let's Encrypt)
+
+Monitoring (Prometheus + Grafana)
+
+Backup strategy
+
+Tài Liệu Tham Khảo
+Echo Framework: https://echo.labstack.com
+
+GORM: https://gorm.io
+
+React Query: https://tanstack.com/query
+
+TailwindCSS: https://tailwindcss.com
+
+Cloudinary: https://cloudinary.com/documentation
+
+Support & Maintenance
+Hàng ngày:
+Check logs: docker-compose logs -f --tail=100
+
+Monitor database connections
+
+Backup database
+
+Hàng tuần:
+Update dependencies
+
+Review performance metrics
+
+Clean up old sessions
+
+Hàng tháng:
+Security updates
+
+Database optimization (VACUUM, ANALYZE)
+
+Feature updates based on user feedback
+

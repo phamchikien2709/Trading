@@ -1,0 +1,38 @@
+---
+description:
+globs:
+alwaysApply: true
+---
+
+# Always create plan + checklist + tdd
+
+## Context
+
+- Apply when starting any non-trivial implementation task (3+ steps) or when the user explicitly asks for a plan/process.
+- Goal: keep work trackable by continuously updating a checklist and a `tdd.md`.
+
+## Critical Rules
+
+- Before coding, write a short **plan** (goal + next steps) in chat and/or `tdd.md`.
+- Create (or reuse) a task folder and ensure it contains:
+  - `checklist.md`: actionable checklist items
+  - `tdd.md`: technical design notes + a mirrored checklist section
+- As each item is completed, immediately tick it in **both** `checklist.md` and the checklist section in `tdd.md`.
+- Keep checklist items small and verifiable (one outcome per checkbox).
+- If scope changes, update both documents so they remain the source of truth for progress.
+
+## Examples
+
+<example>
+User: “Lên plan, tạo checklist & tdd.md trong folder AutoTrading…”
+Assistant:
+  - Creates `AutoTrading/checklist.md` + `AutoTrading/tdd.md`
+  - Implements step-by-step
+  - Ticks items after finishing each step in both files
+</example>
+
+<example type="invalid">
+Assistant:
+  - Starts coding immediately without creating checklist/tdd
+  - Finishes multiple steps but never ticks progress, leaving docs stale
+</example>
