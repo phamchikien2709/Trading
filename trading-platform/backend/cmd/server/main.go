@@ -52,6 +52,8 @@ func main() {
 	api.GET("/feed", handlers.GetNewsfeed)
 	api.GET("/posts/:id", handlers.GetPost)
 	api.POST("/posts", handlers.CreatePost)
+	api.DELETE("/posts/:id/comments/:comment_id", handlers.DeleteComment)
+	api.DELETE("/posts/:id", handlers.DeletePost)
 	api.POST("/posts/:id/like", handlers.LikePost)
 	api.DELETE("/posts/:id/like", handlers.UnlikePost)
 	api.POST("/posts/:id/comments", handlers.AddComment)

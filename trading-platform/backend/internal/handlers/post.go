@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 
@@ -14,19 +15,41 @@ import (
 func GetNewsfeed(c echo.Context) error {
 	userID := c.Get("user_id").(uint)
 
-	followed := database.DB.Model(&models.Follow{}).
-		Select("user_id").
-		Where("follower_id = ?", userID)
+	const pageSize = 20
+	var afterID uint
+	if s := c.QueryParam("after_id"); s != "" {
+		v, err := strconv.ParseUint(s, 10, 32)
+		if err != nil || v == 0 {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid after_id"})
+		}
+		afterID = uint(v)
+	}
+
+	q := database.DB.Preload("User").Model(&models.Post{}).
+		Order("created_at DESC, id DESC").
+		Limit(pageSize + 1)
+
+	if afterID > 0 {
+		var cursor models.Post
+		if err := database.DB.Model(&models.Post{}).Where("id = ?", afterID).First(&cursor).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid cursor"})
+			}
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "could not load feed"})
+		}
+		q = q.Where("(created_at < ? OR (created_at = ? AND id < ?))", cursor.CreatedAt, cursor.CreatedAt, cursor.ID)
+	}
 
 	var posts []models.Post
-	q := database.DB.Preload("User").
-		Where("user_id = ? OR user_id IN (?)", userID, followed).
-		Order("created_at DESC").
-		Limit(20)
-
 	if err := q.Find(&posts).Error; err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "could not load feed"})
 	}
+
+	hasMore := len(posts) > pageSize
+	if hasMore {
+		posts = posts[:pageSize]
+	}
+
 	if len(posts) > 0 {
 		ids := make([]uint, len(posts))
 		for i := range posts {
@@ -44,7 +67,11 @@ func GetNewsfeed(c echo.Context) error {
 			posts[i].LikedByMe = liked[posts[i].ID]
 		}
 	}
-	return c.JSON(http.StatusOK, posts)
+
+	return c.JSON(http.StatusOK, map[string]any{
+		"items":    posts,
+		"has_more": hasMore,
+	})
 }
 
 func GetPost(c echo.Context) error {
@@ -175,4 +202,75 @@ func AddComment(c echo.Context) error {
 	}
 	database.DB.Preload("User").First(&comment, comment.ID)
 	return c.JSON(http.StatusCreated, comment)
+}
+
+func DeleteComment(c echo.Context) error {
+	postID64, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid id"})
+	}
+	postID := uint(postID64)
+	commentID64, err := strconv.ParseUint(c.Param("comment_id"), 10, 32)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid comment id"})
+	}
+	commentID := uint(commentID64)
+	userID := c.Get("user_id").(uint)
+
+	var com models.Comment
+	if err := database.DB.Where("id = ? AND post_id = ?", commentID, postID).First(&com).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return c.JSON(http.StatusNotFound, map[string]string{"error": "comment not found"})
+		}
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "could not load comment"})
+	}
+	if com.UserID != userID {
+		return c.JSON(http.StatusForbidden, map[string]string{"error": "forbidden"})
+	}
+
+	err = database.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Delete(&models.Comment{}, com.ID).Error; err != nil {
+			return err
+		}
+		var n int64
+		if err := tx.Model(&models.Comment{}).Where("post_id = ?", postID).Count(&n).Error; err != nil {
+			return err
+		}
+		return tx.Model(&models.Post{}).Where("id = ?", postID).Update("comments_count", n).Error
+	})
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "could not delete comment"})
+	}
+	return c.JSON(http.StatusOK, map[string]string{"message": "deleted"})
+}
+
+func DeletePost(c echo.Context) error {
+	postID64, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid id"})
+	}
+	postID := uint(postID64)
+	userID := c.Get("user_id").(uint)
+
+	var post models.Post
+	if err := database.DB.Where("id = ? AND user_id = ?", postID, userID).First(&post).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return c.JSON(http.StatusNotFound, map[string]string{"error": "post not found"})
+		}
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "could not load post"})
+	}
+
+	err = database.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("post_id = ?", postID).Delete(&models.Like{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("post_id = ?", postID).Delete(&models.Comment{}).Error; err != nil {
+			return err
+		}
+		return tx.Delete(&models.Post{}, postID).Error
+	})
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "could not delete post"})
+	}
+	return c.JSON(http.StatusOK, map[string]string{"message": "deleted"})
 }

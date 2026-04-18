@@ -4,7 +4,7 @@
 
 | Layer | Technology |
 |--------|------------|
-| Frontend | React, Vite, TailwindCSS, React Query, React Router, Axios, react-hook-form + zod, react-hot-toast, lucide-react, recharts, react-image-crop |
+| Frontend | React, Vite, **MUI 6 + Emotion**, TanStack Query, React Router, Axios, react-hook-form + zod, react-hot-toast, **@mui/icons-material**, lucide-react, recharts, react-image-crop; Tailwind via `@tailwindcss/vite` where used |
 | Backend | Go 1.21+ (recommended), Echo v4, GORM, PostgreSQL driver, JWT v5, bcrypt, godotenv |
 | Data | PostgreSQL 15, Redis 7 |
 | Files | Cloudinary (cloudinary-go v2) |

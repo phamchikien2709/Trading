@@ -38,11 +38,11 @@ export default function CreatePostDialog({ open, onClose }) {
     mutationFn: (payload) => postAPI.create(payload),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['feed'] })
-      toast.success('Post created')
+      toast.success('Đã đăng bài')
       reset(defaultValues)
       onClose()
     },
-    onError: (e) => toast.error(e.response?.data?.error || 'Failed'),
+    onError: (e) => toast.error(e.response?.data?.error || 'Thất bại'),
   })
 
   return (
@@ -54,7 +54,7 @@ export default function CreatePostDialog({ open, onClose }) {
       scroll="body"
       PaperProps={{ sx: formDialogPaperSx(theme) }}
     >
-      <DialogTitle sx={formDialogTitleSx}>New post</DialogTitle>
+      <DialogTitle sx={formDialogTitleSx}>Đăng bài mới</DialogTitle>
       <form
         id="create-post-dialog-form"
         onSubmit={handleSubmit((v) => {
@@ -73,18 +73,25 @@ export default function CreatePostDialog({ open, onClose }) {
       >
         <DialogContent sx={formDialogContentSx}>
           <Stack spacing={2.25}>
-            <TextField label="Content" multiline minRows={5} fullWidth required {...register('content', { required: true })} />
-            <TextField label="Chart image URL (optional)" fullWidth {...register('chart_image_url')} />
-            <TextField label="Symbols (comma-separated)" fullWidth {...register('symbols')} />
-            <TextField label="Timeframe" fullWidth {...register('timeframe')} />
+            <TextField
+              label="Nội dung"
+              multiline
+              minRows={5}
+              fullWidth
+              required
+              {...register('content', { required: 'Vui lòng nhập nội dung' })}
+            />
+            <TextField label="URL ảnh biểu đồ (tuỳ chọn)" fullWidth {...register('chart_image_url')} />
+            <TextField label="Mã công cụ (cách nhau bằng dấu phẩy)" fullWidth {...register('symbols')} />
+            <TextField label="Khung thời gian" fullWidth {...register('timeframe')} />
           </Stack>
         </DialogContent>
         <DialogActions sx={formDialogActionsSx(theme)}>
           <Button onClick={onClose} color="inherit" sx={{ color: 'text.secondary' }}>
-            Cancel
+            Hủy
           </Button>
           <Button type="submit" variant="contained" disabled={m.isPending}>
-            Publish
+            Xuất bản
           </Button>
         </DialogActions>
       </form>

@@ -1,10 +1,10 @@
 import { alpha } from '@mui/material/styles'
-import { POST_CARD_RADIUS_PX } from './listCardStyles'
+import { LIST_CARD_RADIUS_PX } from './listCardStyles'
 
-/** Shared “form sheet” look for New post / New journal dialogs. */
+/** Kiểu “tờ biểu mẫu” dùng chung cho hộp thoại đăng bài / thêm nhật ký. */
 export function formDialogPaperSx(theme) {
   return {
-    borderRadius: `${POST_CARD_RADIUS_PX}px`,
+    borderRadius: `${LIST_CARD_RADIUS_PX}px`,
     border: `1px solid ${alpha(theme.palette.primary.main, 0.22)}`,
     backgroundImage: `
       linear-gradient(135deg, ${alpha(theme.palette.primary.main, 0.06)} 0%, transparent 45%),

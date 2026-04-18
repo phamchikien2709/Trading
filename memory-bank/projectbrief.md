@@ -34,3 +34,7 @@ Implementation phases, schema, and API sketches live in `ImplementFullProject.tx
 
 - End-to-end: user can register, log in, create journals and posts (with image), see personalized feed, like/comment, follow another user.
 - `docker compose` brings up stack per spec checklist.
+
+## Implementation note
+
+- Primary web UI lives under `trading-platform/frontend` using **Material UI** (see `memory-bank/systemPatterns.md` / `techContext.md`), not Tailwind-only.

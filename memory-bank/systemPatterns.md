@@ -4,7 +4,7 @@
 
 - **Monorepo layout**: `trading-platform/backend/` (Go), `trading-platform/frontend/` (React + Vite), `trading-platform/docker-compose.yml`, `trading-platform/README.md`.
 - **Backend**: Echo HTTP server, GORM for PostgreSQL, handlers under `internal/handlers`, models under `internal/models`, shared DB handle in `internal/database`.
-- **Frontend**: React Router, TanStack Query for server state, Axios instance with Bearer token from `localStorage`, Tailwind for styling.
+- **Frontend**: React Router, TanStack Query for server state, Axios with Bearer token from `localStorage`, **MUI v6 + Emotion** as the main UI layer; Tailwind is available via the Vite plugin for utilities where needed.
 - **Media**: Cloudinary SDK on backend; frontend uploads `multipart/form-data` to upload endpoint, stores returned URL on post/journal.
 
 ## Auth
@@ -28,3 +28,9 @@
 
 - API base: `VITE_API_URL` defaulting to `http://localhost:8080/api` on frontend (per spec).
 - Go module path: `trading-platform` (per spec); adjust if repository uses a different module name.
+
+## UI: list cards and dialogs
+
+- Shared shell: `frontend/src/theme/listCardStyles.js` exports `tradingListCard(theme, opts)` and `LIST_CARD_RADIUS_PX` (24px). **Feed posts** and **journal rows** use the same pattern; default accent aligns with journal LONG (teal / `secondary.main`); SHORT journals pass red `error.main` as `accent`.
+- **Post detail** main card uses the same `tradingListCard` language; **comments** are borderless: soft panel composer + thread list with light dividers (no per-comment outlined cards).
+- **Form dialogs**: `frontend/src/theme/formDialogStyles.js` — dialog paper radius follows `LIST_CARD_RADIUS_PX` for visual consistency.

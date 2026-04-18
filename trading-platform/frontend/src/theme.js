@@ -1,6 +1,6 @@
 import { alpha, createTheme } from '@mui/material/styles'
 
-/** Light UI + Roboto; primary accent for cards / chrome. */
+/** Giao diện sáng + Roboto; màu nhấn cho thẻ và khung ứng dụng. */
 export const appTheme = createTheme({
   palette: {
     mode: 'light',

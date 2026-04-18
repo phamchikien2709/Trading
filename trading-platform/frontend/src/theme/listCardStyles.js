@@ -1,19 +1,21 @@
 import { alpha } from '@mui/material/styles'
 
-/** Post list cards — squarer corners. */
-export const POST_CARD_RADIUS_PX = 12
-/** Journal list cards — larger corner radius. */
-export const JOURNAL_CARD_RADIUS_PX = 24
+/** Bán kính thống nhất cho thẻ danh sách bài viết và nhật ký. */
+export const LIST_CARD_RADIUS_PX = 24
+/** @deprecated Bí danh — dùng LIST_CARD_RADIUS_PX */
+export const JOURNAL_CARD_RADIUS_PX = LIST_CARD_RADIUS_PX
+/** @deprecated Bí danh — dùng LIST_CARD_RADIUS_PX */
+export const POST_CARD_RADIUS_PX = LIST_CARD_RADIUS_PX
 
 /**
- * Custom list / chrome “card” — left accent bar, soft gradient, optional hover lift.
+ * Thẻ danh sách tùy chỉnh — thanh nhấn trái, nền gradient mềm, có thể nổi khi di chuột.
  * @param {import('@mui/material/styles').Theme} theme
- * @param {{ accent?: string; interactive?: boolean; radiusPx?: number }} [opts]
+ * @param {{ accent?: string; interactive?: boolean; radiusPx?: number }} [tuyChon]
  */
-export function tradingListCard(theme, opts = {}) {
-  const accent = opts.accent ?? theme.palette.primary.main
-  const interactive = opts.interactive !== false
-  const radiusPx = opts.radiusPx ?? POST_CARD_RADIUS_PX
+export function tradingListCard(theme, tuyChon = {}) {
+  const accent = tuyChon.accent ?? theme.palette.secondary.main
+  const interactive = tuyChon.interactive !== false
+  const radiusPx = tuyChon.radiusPx ?? LIST_CARD_RADIUS_PX
   const isDark = theme.palette.mode === 'dark'
 
   const baseBg = isDark
@@ -21,7 +23,7 @@ export function tradingListCard(theme, opts = {}) {
     : alpha(theme.palette.background.paper, 0.97)
   const gradA = isDark
     ? alpha('#2a3d52', 0.35)
-    : alpha(theme.palette.primary.main, 0.07)
+    : alpha(accent, 0.09)
   const gradB = isDark
     ? alpha('#161d28', 0.95)
     : alpha(theme.palette.grey[100], 0.95)

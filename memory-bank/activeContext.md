@@ -2,7 +2,7 @@
 
 ## Current focus
 
-Runnable stack under `trading-platform/`: **Go Echo API** + **Vite React UI** + **Docker Compose** (Postgres, Redis, Nginx frontend). Phases 1–3 and 5 (code) done; **Cloudinary upload (Phase 4)** and **tests/Redis cache (Phase 6)** still open.
+Runnable stack under `trading-platform/`: **Go Echo API** + **Vite React + MUI UI** + **Docker Compose** (Postgres, Redis, Nginx frontend). Core MVP flows work; **Cloudinary upload (Phase 4)** and **tests/Redis cache (Phase 6)** remain the main implementation gaps.
 
 ## Next steps (implementation order)
 
@@ -19,3 +19,7 @@ Runnable stack under `trading-platform/`: **Go Echo API** + **Vite React UI** + 
 ## Recent changes
 
 - Scaffolded full stack in `trading-platform/` (backend, frontend, Docker, README).
+- Feed: `GET /feed` paginated (`after_id`, 20/lần, `{ items, has_more }`); timeline **tất cả post** (user đã login). Journal API chỉ trả về bản ghi `user_id` = viewer.
+- Dashboard: filter **All time / This month / This year** + nhóm **Day / Month / Year**; thống kê + bar PnL theo bucket + cumulative line trên journal đã lọc (client-side).
+- **UI — list cards**: `tradingListCard` + `LIST_CARD_RADIUS_PX` unify **Feed** post cards and **Journal** rows (journal visual language as baseline); `PostDetail` main post matches.
+- **UI — comments** (`PostDetail.jsx`): borderless composer + thread-style list; **multiline** input (`minRows` / `maxRows`), **Enter** sends, **Shift+Enter** newline; submit reads `e.currentTarget.value` on keydown to avoid stale state.

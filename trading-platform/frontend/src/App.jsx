@@ -21,7 +21,7 @@ function HomeRedirect() {
   return <Navigate to={localStorage.getItem('token') ? '/dashboard' : '/login'} replace />
 }
 
-/** Optional hero; tuned for light theme. */
+/** Nền trang trí tùy chọn; tối ưu cho giao diện sáng. */
 function ThemeHeroBackdrop() {
   return (
     <Box
@@ -126,14 +126,14 @@ function AppHeader() {
             letterSpacing: 0.02,
           }}
         >
-          TradingPlatform
+          Nền tảng giao dịch
         </Typography>
         {authed && (
           <Stack direction="row" flexWrap="wrap" alignItems="center" spacing={0.25} useFlexGap sx={{ flexGrow: { sm: 1 }, justifyContent: { sm: 'flex-end' } }}>
-            {navBtn('/dashboard', 'Dashboard')}
-            {navBtn('/journal', 'Journal')}
-            {navBtn('/feed', 'Posts')}
-            {navBtn('/profile', 'Profile')}
+            {navBtn('/dashboard', 'Tổng quan')}
+            {navBtn('/journal', 'Nhật ký')}
+            {navBtn('/feed', 'Bài viết')}
+            {navBtn('/profile', 'Hồ sơ')}
           </Stack>
         )}
       </Toolbar>

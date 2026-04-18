@@ -12,7 +12,8 @@ Traders need one place to log trades with context (screenshots, notes, PnL) and 
 ## Experience goals
 
 - **Journal**: fast entry of symbol, direction, prices, volume, date; optional screenshot; clear list/sort by `traded_at`.
-- **Feed**: chronological posts from followed accounts and own posts; like and expand comments without friction.
+- **Feed**: chronological posts from followed accounts and own posts; like and expand comments without friction. List rows (posts + journals) share one **card shell** (radius, left accent, chips) so the feed feels cohesive.
+- **Post detail**: comments are easy to scan (thread layout, multiline text); composer supports **Enter to send** and **Shift+Enter** for new lines.
 - **Profile**: avatar, bio, ability to follow/unfollow.
 - **Trust & clarity**: auth errors and validation messages are understandable; uploads show progress and recover from failure.
 

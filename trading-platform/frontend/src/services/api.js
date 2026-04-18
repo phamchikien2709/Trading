@@ -1,5 +1,6 @@
 import axios from 'axios'
 
+/** Cơ sở REST; đường dẫn giữ nguyên để khớp backend. */
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080/api'
 
 const api = axios.create({
@@ -30,9 +31,15 @@ export const journalAPI = {
 }
 
 export const postAPI = {
-  getFeed: () => api.get('/feed'),
+  /** Lấy dòng thời gian bài viết; có thể truyền after_id để phân trang. */
+  getFeed: (params) =>
+    api.get('/feed', {
+      params: params?.after_id != null ? { after_id: params.after_id } : {},
+    }),
   getById: (id) => api.get(`/posts/${id}`),
   create: (data) => api.post('/posts', data),
+  deletePost: (id) => api.delete(`/posts/${id}`),
+  deleteComment: (postId, commentId) => api.delete(`/posts/${postId}/comments/${commentId}`),
   like: (id) => api.post(`/posts/${id}/like`),
   unlike: (id) => api.delete(`/posts/${id}/like`),
   comment: (id, content, parentId) =>

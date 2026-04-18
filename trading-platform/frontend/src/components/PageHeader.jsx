@@ -3,7 +3,7 @@ import Button from '@mui/material/Button'
 import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
 
-/** Page title + subtitle + optional right action (aligned MUI layout). */
+/** Tiêu đề trang + phụ đề + tuỳ chọn nút bên phải (bố cục MUI). */
 export function PageHeader({ title, subtitle, action }) {
   return (
     <Stack
@@ -27,7 +27,7 @@ export function PageHeader({ title, subtitle, action }) {
   )
 }
 
-/** Primary pill CTA — use for New post / New journal. */
+/** Nút kêu gọi hành động dạng viên thuốc — dùng cho Đăng bài / Thêm nhật ký. */
 export function PagePrimaryButton({ sx, children, ...rest }) {
   return (
     <Button

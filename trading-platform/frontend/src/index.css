@@ -7,7 +7,7 @@
   --color-primary-700: #1d4ed8;
 }
 
-/* Light shell before MUI hydration */
+/* Nền sáng trước khi MUI kích hoạt */
 body {
   margin: 0;
   min-height: 100vh;
