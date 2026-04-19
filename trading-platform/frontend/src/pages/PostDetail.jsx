@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { Link as RouterLink, useNavigate, useParams } from "react-router-dom";
 import toast from "react-hot-toast";
 import { alpha, useTheme } from "@mui/material/styles";
 import ArticleOutlinedIcon from "@mui/icons-material/ArticleOutlined";
@@ -58,6 +58,7 @@ export default function PostDetail() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["post", postId] });
       qc.invalidateQueries({ queryKey: ["feed"] });
+      qc.invalidateQueries({ queryKey: ["notificationsUnread"] });
     },
     onError: (e) =>
       toast.error(e.response?.data?.error || "Thao tác thích thất bại"),
@@ -68,6 +69,7 @@ export default function PostDetail() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["post", postId] });
       qc.invalidateQueries({ queryKey: ["feed"] });
+      qc.invalidateQueries({ queryKey: ["notificationsUnread"] });
     },
   });
 
@@ -77,6 +79,7 @@ export default function PostDetail() {
       setComment("");
       qc.invalidateQueries({ queryKey: ["post", postId] });
       qc.invalidateQueries({ queryKey: ["feed"] });
+      qc.invalidateQueries({ queryKey: ["notificationsUnread"] });
       toast.success("Đã thêm bình luận");
     },
     onError: (e) =>
@@ -163,6 +166,8 @@ export default function PostDetail() {
   const author = p.user?.username || "Người dùng";
   const myId = profileQ.data?.id;
   const isPostOwner = myId != null && myId === p.user_id;
+  const authorProfileTo =
+    p.user_id != null && p.user_id > 0 ? `/profile/${p.user_id}` : null;
 
   const toggleLike = () => {
     if (liked) unlikeM.mutate();
@@ -214,12 +219,17 @@ export default function PostDetail() {
               sx={{ minWidth: 0 }}
             >
               <Avatar
+                component={authorProfileTo ? RouterLink : "div"}
+                {...(authorProfileTo ? { to: authorProfileTo } : {})}
                 sx={{
                   width: 48,
                   height: 48,
                   fontWeight: 700,
                   bgcolor: alpha(cardAccent, 0.15),
                   color: "secondary.dark",
+                  ...(authorProfileTo
+                    ? { textDecoration: "none", cursor: "pointer" }
+                    : {}),
                 }}
               >
                 {userInitial(author)}
@@ -232,9 +242,22 @@ export default function PostDetail() {
                   flexWrap="wrap"
                 >
                   <Typography
+                    component={authorProfileTo ? RouterLink : "span"}
+                    {...(authorProfileTo ? { to: authorProfileTo } : {})}
                     variant="h5"
                     fontWeight={800}
-                    sx={{ letterSpacing: 1, fontFamily: "inherit" }}
+                    sx={{
+                      letterSpacing: 1,
+                      fontFamily: "inherit",
+                      ...(authorProfileTo
+                        ? {
+                            color: "inherit",
+                            textDecoration: "none",
+                            cursor: "pointer",
+                            "&:hover": { textDecoration: "underline" },
+                          }
+                        : {}),
+                    }}
                   >
                     {author}
                   </Typography>
@@ -480,7 +503,12 @@ export default function PostDetail() {
             ),
           }}
         >
-          {comments.map((c, idx) => (
+          {comments.map((c, idx) => {
+            const commentProfileTo =
+              c.user_id != null && c.user_id > 0
+                ? `/profile/${c.user_id}`
+                : null;
+            return (
             <Box
               key={c.id}
               sx={{
@@ -494,6 +522,8 @@ export default function PostDetail() {
             >
               <Stack direction="row" spacing={1.5} alignItems="flex-start">
                 <Avatar
+                  component={commentProfileTo ? RouterLink : "div"}
+                  {...(commentProfileTo ? { to: commentProfileTo } : {})}
                   sx={{
                     width: 40,
                     height: 40,
@@ -501,6 +531,9 @@ export default function PostDetail() {
                     fontWeight: 700,
                     bgcolor: alpha(theme.palette.secondary.main, 0.15),
                     color: "secondary.dark",
+                    ...(commentProfileTo
+                      ? { textDecoration: "none", cursor: "pointer" }
+                      : {}),
                   }}
                 >
                   {userInitial(c.user?.username)}
@@ -520,7 +553,22 @@ export default function PostDetail() {
                       flexWrap="wrap"
                       sx={{ minWidth: 0 }}
                     >
-                      <Typography variant="subtitle2" fontWeight={700}>
+                      <Typography
+                        component={commentProfileTo ? RouterLink : "span"}
+                        {...(commentProfileTo ? { to: commentProfileTo } : {})}
+                        variant="subtitle2"
+                        fontWeight={700}
+                        sx={
+                          commentProfileTo
+                            ? {
+                                color: "inherit",
+                                textDecoration: "none",
+                                cursor: "pointer",
+                                "&:hover": { textDecoration: "underline" },
+                              }
+                            : undefined
+                        }
+                      >
                         {c.user?.username || "Người dùng"}
                       </Typography>
                       <Typography
@@ -558,7 +606,8 @@ export default function PostDetail() {
                 </Box>
               </Stack>
             </Box>
-          ))}
+            );
+          })}
         </Box>
       )}
 

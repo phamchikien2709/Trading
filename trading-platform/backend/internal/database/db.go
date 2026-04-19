@@ -34,11 +34,15 @@ func Connect() {
 
 	if err := DB.AutoMigrate(
 		&models.User{},
+		&models.EmailOTPChallenge{},
+		&models.ExpertRating{},
+		&models.JournalChecklistTemplate{},
 		&models.TradingJournal{},
 		&models.Post{},
 		&models.Comment{},
 		&models.Like{},
 		&models.Follow{},
+		&models.Notification{},
 	); err != nil {
 		log.Fatal("auto migrate:", err)
 	}

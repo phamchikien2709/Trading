@@ -19,43 +19,6 @@ type loginRequest struct {
 	Password string `json:"password"`
 }
 
-type registerRequest struct {
-	Username string `json:"username"`
-	Email    string `json:"email"`
-	Password string `json:"password"`
-}
-
-func Register(c echo.Context) error {
-	var req registerRequest
-	if err := c.Bind(&req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
-	}
-	req.Username = strings.TrimSpace(req.Username)
-	req.Email = strings.TrimSpace(strings.ToLower(req.Email))
-	if req.Username == "" || len(req.Password) < 6 || req.Email == "" || !strings.Contains(req.Email, "@") {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "validation failed"})
-	}
-
-	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
-	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "could not hash password"})
-	}
-
-	user := models.User{
-		Username:     req.Username,
-		Email:        req.Email,
-		PasswordHash: string(hash),
-	}
-	if err := database.DB.Create(&user).Error; err != nil {
-		return c.JSON(http.StatusConflict, map[string]string{"error": "user already exists"})
-	}
-
-	return c.JSON(http.StatusCreated, map[string]any{
-		"message": "user created successfully",
-		"user_id": user.ID,
-	})
-}
-
 func Login(c echo.Context) error {
 	var req loginRequest
 	if err := c.Bind(&req); err != nil {

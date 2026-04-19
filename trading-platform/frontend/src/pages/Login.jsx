@@ -1,75 +1,102 @@
-import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
-import { useForm } from 'react-hook-form'
-import { z } from 'zod'
-import { zodResolver } from '@hookform/resolvers/zod'
-import toast from 'react-hot-toast'
-import { authAPI } from '../services/api'
+import { useState } from "react";
+import { Link as RouterLink, useNavigate } from "react-router-dom";
+import { useForm } from "react-hook-form";
+import { z } from "zod";
+import { zodResolver } from "@hookform/resolvers/zod";
+import toast from "react-hot-toast";
+import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import CircularProgress from "@mui/material/CircularProgress";
+import Link from "@mui/material/Link";
+import Stack from "@mui/material/Stack";
+import TextField from "@mui/material/TextField";
+import Typography from "@mui/material/Typography";
+import AuthCardShell from "../components/AuthCardShell";
+import { authAPI } from "../services/api";
 
 const schema = z.object({
-  email: z.string().email({ message: 'Email không hợp lệ' }),
-  password: z.string().min(1, 'Vui lòng nhập mật khẩu'),
-})
+  email: z.string().email({ message: "Email không hợp lệ" }),
+  password: z.string().min(1, "Vui lòng nhập mật khẩu"),
+});
 
 export default function Login() {
-  const nav = useNavigate()
-  const [loading, setLoading] = useState(false)
+  const nav = useNavigate();
+  const [loading, setLoading] = useState(false);
   const {
     register,
     handleSubmit,
     formState: { errors },
-  } = useForm({ resolver: zodResolver(schema) })
+  } = useForm({ resolver: zodResolver(schema) });
 
   const onSubmit = async (data) => {
-    setLoading(true)
+    setLoading(true);
     try {
-      const res = await authAPI.login(data)
-      localStorage.setItem('token', res.data.token)
-      toast.success('Chào mừng bạn quay lại')
-      nav('/dashboard', { replace: true })
+      const res = await authAPI.login(data);
+      localStorage.setItem("token", res.data.token);
+      toast.success("Chào mừng bạn quay lại");
+      nav("/dashboard", { replace: true });
     } catch (e) {
-      toast.error(e.response?.data?.error || 'Đăng nhập thất bại')
+      toast.error(e.response?.data?.error || "Đăng nhập thất bại");
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
   return (
-    <div className="mx-auto max-w-md px-4 py-16">
-      <h1 className="text-2xl font-semibold text-slate-900">Đăng nhập</h1>
-      <p className="mt-1 text-sm text-slate-600">
-        Chưa có tài khoản?{' '}
-        <Link to="/register" className="text-primary-600 font-medium">
-          Đăng ký
-        </Link>
-      </p>
-      <form onSubmit={handleSubmit(onSubmit)} className="mt-8 space-y-4">
-        <div>
-          <label className="block text-sm font-medium text-slate-700">Thư điện tử</label>
-          <input
+    <AuthCardShell>
+      <Typography variant="h5" component="h1" gutterBottom>
+        Đăng nhập
+      </Typography>
+      <Stack spacing={0.5} sx={{ mb: 3 }}>
+        <Typography variant="body2" color="text.secondary">
+          Chưa có tài khoản?{" "}
+          <Link component={RouterLink} to="/register" fontWeight={600}>
+            Đăng ký
+          </Link>
+        </Typography>
+        <Typography variant="body2" color="text.secondary">
+          <Link component={RouterLink} to="/forgot-password" fontWeight={600}>
+            Quên mật khẩu?
+          </Link>
+        </Typography>
+      </Stack>
+
+      <Box component="form" onSubmit={handleSubmit(onSubmit)} noValidate>
+        <Stack spacing={2.5}>
+          <TextField
+            label="Email"
             type="email"
-            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
-            {...register('email')}
+            autoComplete="email"
+            fullWidth
+            error={!!errors.email}
+            helperText={errors.email?.message}
+            {...register("email")}
           />
-          {errors.email && <p className="text-sm text-red-600 mt-1">{errors.email.message}</p>}
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-slate-700">Mật khẩu</label>
-          <input
+          <TextField
+            label="Mật khẩu"
             type="password"
-            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
-            {...register('password')}
+            autoComplete="current-password"
+            fullWidth
+            error={!!errors.password}
+            helperText={errors.password?.message}
+            {...register("password")}
           />
-          {errors.password && <p className="text-sm text-red-600 mt-1">{errors.password.message}</p>}
-        </div>
-        <button
-          type="submit"
-          disabled={loading}
-          className="w-full rounded-lg bg-primary-600 py-2.5 font-medium text-white hover:bg-primary-700 disabled:opacity-50"
-        >
-          {loading ? 'Đang đăng nhập…' : 'Đăng nhập'}
-        </button>
-      </form>
-    </div>
-  )
+          <Button
+            type="submit"
+            variant="contained"
+            size="large"
+            fullWidth
+            disabled={loading}
+            sx={{ py: 1.25, textTransform: "none", fontWeight: 600 }}
+          >
+            {loading ? (
+              <CircularProgress size={22} color="inherit" aria-label="Đang đăng nhập" />
+            ) : (
+              "Đăng nhập"
+            )}
+          </Button>
+        </Stack>
+      </Box>
+    </AuthCardShell>
+  );
 }

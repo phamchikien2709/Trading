@@ -17,10 +17,21 @@ api.interceptors.request.use((config) => {
 })
 
 export const authAPI = {
-  register: (data) => api.post('/register', data),
   login: (data) => api.post('/login', data),
+  signupRequestOTP: (data) => api.post('/auth/signup/request', data),
+  signupVerifyOTP: (data) => api.post('/auth/signup/verify', data),
+  signupComplete: (data) => api.post('/auth/signup/complete', data),
+  passwordResetRequest: (data) => api.post('/auth/password-reset/request', data),
+  passwordResetVerify: (data) => api.post('/auth/password-reset/verify', data),
+  passwordResetComplete: (data) => api.post('/auth/password-reset/complete', data),
   getProfile: () => api.get('/profile'),
   updateProfile: (data) => api.put('/profile', data),
+}
+
+/** Hồ sơ công khai + đánh giá chuyên gia (theo `id` user). */
+export const userAPI = {
+  getById: (id) => api.get(`/users/${id}`),
+  setExpertRating: (id, score) => api.post(`/users/${id}/expert-rating`, { score }),
 }
 
 export const journalAPI = {
@@ -28,6 +39,15 @@ export const journalAPI = {
   create: (data) => api.post('/journals', data),
   update: (id, data) => api.put(`/journals/${id}`, data),
   delete: (id) => api.delete(`/journals/${id}`),
+}
+
+/** Checklist rule templates for journal entries (user-defined). */
+export const journalChecklistTemplateAPI = {
+  getAll: () => api.get('/journal-checklist-templates'),
+  getById: (id) => api.get(`/journal-checklist-templates/${id}`),
+  create: (data) => api.post('/journal-checklist-templates', data),
+  /** Soft-delete (archived) on server. */
+  delete: (id) => api.delete(`/journal-checklist-templates/${id}`),
 }
 
 export const postAPI = {
@@ -49,6 +69,13 @@ export const postAPI = {
 export const followAPI = {
   follow: (userId) => api.post(`/follow/${userId}`),
   unfollow: (userId) => api.delete(`/follow/${userId}`),
+}
+
+export const notificationAPI = {
+  list: () => api.get('/notifications'),
+  unreadCount: () => api.get('/notifications/unread-count'),
+  markRead: (id) => api.post(`/notifications/${id}/read`),
+  markAllRead: () => api.post('/notifications/read-all'),
 }
 
 export default api

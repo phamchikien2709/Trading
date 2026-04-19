@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import toast from "react-hot-toast";
 import EditIcon from "@mui/icons-material/Edit";
 import LogoutIcon from "@mui/icons-material/Logout";
+import PersonAddIcon from "@mui/icons-material/PersonAdd";
+import PersonRemoveIcon from "@mui/icons-material/PersonRemove";
 import Avatar from "@mui/material/Avatar";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
@@ -20,6 +22,7 @@ import IconButton from "@mui/material/IconButton";
 import Stack from "@mui/material/Stack";
 import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
+import Rating from "@mui/material/Rating";
 import { useTheme } from "@mui/material/styles";
 import { APP_VIEWPORT_MAX_PX } from "../constants/layout";
 import {
@@ -29,18 +32,34 @@ import {
   formDialogTitleSx,
 } from "../theme/formDialogStyles";
 import ConfirmDialog from "../components/ConfirmDialog";
-import { authAPI } from "../services/api";
+import { authAPI, followAPI, userAPI } from "../services/api";
 
 export default function Profile() {
   const theme = useTheme();
   const nav = useNavigate();
+  const { userId: userIdParam } = useParams();
   const qc = useQueryClient();
   const [editOpen, setEditOpen] = useState(false);
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
 
-  const profileQ = useQuery({
+  const parsedPublic =
+    userIdParam != null && userIdParam !== ""
+      ? Number.parseInt(String(userIdParam), 10)
+      : NaN;
+  const publicId =
+    Number.isFinite(parsedPublic) && parsedPublic > 0 ? parsedPublic : null;
+  const invalidPublicParam =
+    userIdParam != null && userIdParam !== "" && publicId == null;
+
+  const meQ = useQuery({
     queryKey: ["profile"],
     queryFn: () => authAPI.getProfile().then((r) => r.data),
+  });
+
+  const publicQ = useQuery({
+    queryKey: ["publicProfile", publicId],
+    queryFn: () => userAPI.getById(publicId).then((r) => r.data),
+    enabled: publicId != null,
   });
 
   const { register, handleSubmit, reset } = useForm({
@@ -49,12 +68,12 @@ export default function Profile() {
   const [pendingProfile, setPendingProfile] = useState(null);
 
   useEffect(() => {
-    if (!editOpen || !profileQ.data) return;
+    if (!editOpen || !meQ.data) return;
     reset({
-      bio: profileQ.data.bio || "",
-      avatar_url: profileQ.data.avatar_url || "",
+      bio: meQ.data.bio || "",
+      avatar_url: meQ.data.avatar_url || "",
     });
-  }, [editOpen, profileQ.data, reset]);
+  }, [editOpen, meQ.data, reset]);
 
   const updateM = useMutation({
     mutationFn: (data) => authAPI.updateProfile(data),
@@ -70,7 +89,40 @@ export default function Profile() {
     },
   });
 
-  const u = profileQ.data;
+  const rateExpertM = useMutation({
+    mutationFn: ({ id, score }) => userAPI.setExpertRating(id, score),
+    onSuccess: (_, { id }) => {
+      qc.invalidateQueries({ queryKey: ["publicProfile", id] });
+      qc.invalidateQueries({ queryKey: ["feed"] });
+      toast.success("Đã lưu đánh giá chuyên gia");
+    },
+    onError: (e) =>
+      toast.error(e.response?.data?.error || "Không gửi được đánh giá"),
+  });
+
+  const followM = useMutation({
+    mutationFn: (id) => followAPI.follow(id),
+    onSuccess: (_, id) => {
+      qc.invalidateQueries({ queryKey: ["publicProfile", id] });
+      qc.invalidateQueries({ queryKey: ["notificationsUnread"] });
+      toast.success("Đã theo dõi");
+    },
+    onError: (e) =>
+      toast.error(e.response?.data?.error || "Thao tác thất bại"),
+  });
+
+  const unfollowM = useMutation({
+    mutationFn: (id) => followAPI.unfollow(id),
+    onSuccess: (_, id) => {
+      qc.invalidateQueries({ queryKey: ["publicProfile", id] });
+      toast.success("Đã bỏ theo dõi");
+    },
+    onError: (e) =>
+      toast.error(e.response?.data?.error || "Thao tác thất bại"),
+  });
+
+  const u = publicId != null ? publicQ.data : meQ.data;
+  const isOwn = Boolean(u && meQ.data && meQ.data.id === u.id);
   const initial = u?.username?.charAt(0)?.toUpperCase() || "?";
 
   const logout = () => {
@@ -82,9 +134,9 @@ export default function Profile() {
     <Box sx={{ maxWidth: `${APP_VIEWPORT_MAX_PX}px`, width: "100%", mx: "auto", py: 3, px: 2 }}>
       <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={2}>
         <Typography variant="h4" component="h1" fontWeight={700}>
-          Hồ sơ
+          {publicId != null ? "Hồ sơ thành viên" : "Hồ sơ"}
         </Typography>
-        {u && (
+        {u && isOwn && (
           <IconButton
             color="primary"
             aria-label="Chỉnh sửa hồ sơ"
@@ -96,13 +148,25 @@ export default function Profile() {
         )}
       </Stack>
 
-      {profileQ.isLoading && (
+      {invalidPublicParam && (
+        <Typography color="error" sx={{ mt: 2 }}>
+          Liên kết hồ sơ không hợp lệ.
+        </Typography>
+      )}
+
+      {(publicId != null ? publicQ.isLoading : meQ.isLoading) && (
         <Box sx={{ display: "flex", justifyContent: "center", py: 6 }}>
           <CircularProgress />
         </Box>
       )}
 
-      {u && (
+      {publicId != null && publicQ.isError && (
+        <Typography color="error" sx={{ mt: 2 }}>
+          {publicQ.error?.response?.data?.error || "Không tải được hồ sơ."}
+        </Typography>
+      )}
+
+      {u && !invalidPublicParam && (
         <Stack spacing={3} sx={{ mt: 2 }}>
           <Card variant="outlined">
             <CardContent>
@@ -126,12 +190,40 @@ export default function Profile() {
                   {initial}
                 </Avatar>
                 <Box sx={{ flex: 1, minWidth: 0 }}>
-                  <Typography variant="h5" fontWeight={700}>
-                    {u.username}
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    {u.email}
-                  </Typography>
+                  <Stack
+                    direction="row"
+                    alignItems="center"
+                    justifyContent="space-between"
+                    flexWrap="wrap"
+                    gap={1}
+                  >
+                    <Typography variant="h5" fontWeight={700}>
+                      {u.username}
+                    </Typography>
+                    {publicId != null && !isOwn && (
+                      <Button
+                        size="small"
+                        variant={u.i_follow ? "outlined" : "contained"}
+                        startIcon={
+                          u.i_follow ? <PersonRemoveIcon /> : <PersonAddIcon />
+                        }
+                        disabled={followM.isPending || unfollowM.isPending}
+                        onClick={() =>
+                          u.i_follow
+                            ? unfollowM.mutate(publicId)
+                            : followM.mutate(publicId)
+                        }
+                        sx={{ textTransform: "none", fontWeight: 600 }}
+                      >
+                        {u.i_follow ? "Bỏ theo dõi" : "Theo dõi"}
+                      </Button>
+                    )}
+                  </Stack>
+                  {u.email != null && u.email !== "" && (
+                    <Typography variant="body2" color="text.secondary">
+                      {u.email}
+                    </Typography>
+                  )}
                   <Divider sx={{ my: 2 }} />
                   <Typography variant="overline" color="text.secondary">
                     Giới thiệu
@@ -142,24 +234,57 @@ export default function Profile() {
                   >
                     {u.bio?.trim() ? u.bio : "Chưa có phần giới thiệu."}
                   </Typography>
+                  <Divider sx={{ my: 2 }} />
+                  <Typography variant="overline" color="text.secondary">
+                    Đánh giá chuyên gia
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                    Trung bình{" "}
+                    <strong>
+                      {typeof u.expert_rating_avg === "number"
+                        ? u.expert_rating_avg.toFixed(1)
+                        : "—"}
+                    </strong>{" "}
+                    / 5 — {u.expert_rating_count ?? 0} lượt. Điểm cao giúp bài phân
+                    tích của người viết được ưu tiên trên bảng tin.
+                  </Typography>
+                  {publicId != null && !isOwn && (
+                    <Stack direction="row" alignItems="center" spacing={1} sx={{ mt: 1 }}>
+                      <Typography variant="body2" color="text.secondary">
+                        Chấm điểm của bạn:
+                      </Typography>
+                      <Rating
+                        name="expert-rating"
+                        value={u.my_expert_rating ?? null}
+                        precision={1}
+                        disabled={rateExpertM.isPending}
+                        onChange={(_, v) => {
+                          if (v != null && publicId != null)
+                            rateExpertM.mutate({ id: publicId, score: v });
+                        }}
+                      />
+                    </Stack>
+                  )}
                 </Box>
               </Stack>
             </CardContent>
           </Card>
 
-          <Card variant="outlined">
-            <CardContent>
-              <Button
-                variant="outlined"
-                color="error"
-                startIcon={<LogoutIcon />}
-                fullWidth
-                onClick={() => setLogoutConfirmOpen(true)}
-              >
-                Đăng xuất
-              </Button>
-            </CardContent>
-          </Card>
+          {(publicId == null || isOwn) && (
+            <Card variant="outlined">
+              <CardContent>
+                <Button
+                  variant="outlined"
+                  color="error"
+                  startIcon={<LogoutIcon />}
+                  fullWidth
+                  onClick={() => setLogoutConfirmOpen(true)}
+                >
+                  Đăng xuất
+                </Button>
+              </CardContent>
+            </Card>
+          )}
         </Stack>
       )}
 

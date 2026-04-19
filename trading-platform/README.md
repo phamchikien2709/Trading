@@ -33,6 +33,8 @@ go run ./cmd/server
 
 Health: `GET http://localhost:8080/api/health`
 
+**Auth (OTP):** đăng ký và quên mật khẩu dùng `POST /api/auth/signup/request|verify|complete` và `POST /api/auth/password-reset/request|verify|complete`. Để `SMTP_HOST` trống trong `.env`, OTP được log ra console backend (dev); set `SMTP_*` để gửi email thật.
+
 ### Frontend
 
 ```powershell

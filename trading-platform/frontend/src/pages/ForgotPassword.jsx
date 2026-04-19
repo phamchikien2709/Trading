@@ -17,14 +17,12 @@ import Typography from "@mui/material/Typography";
 import AuthCardShell from "../components/AuthCardShell";
 import { authAPI } from "../services/api";
 
-const SK_EMAIL = "signup_otp_email";
-const SK_USERNAME = "signup_otp_username";
-const SK_SETUP = "signup_setup_token";
+const SK_EMAIL = "reset_otp_email";
+const SK_SETUP = "reset_setup_token";
 
-const stepLabels = ["Thông tin", "OTP", "Mật khẩu"];
+const stepLabels = ["Email", "OTP", "Mật khẩu mới"];
 
 const step1Schema = z.object({
-  username: z.string().min(2, "Tên đăng nhập tối thiểu 2 ký tự"),
   email: z.string().email({ message: "Email không hợp lệ" }),
 });
 
@@ -42,7 +40,7 @@ const step3Schema = z
     path: ["confirmPassword"],
   });
 
-export default function Register() {
+export default function ForgotPassword() {
   const nav = useNavigate();
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
@@ -64,16 +62,12 @@ export default function Register() {
   const onStep1 = async (data) => {
     setLoading(true);
     try {
-      await authAPI.signupRequestOTP({
-        email: data.email,
-        username: data.username,
-      });
+      await authAPI.passwordResetRequest({ email: data.email });
       sessionStorage.setItem(SK_EMAIL, data.email.trim().toLowerCase());
-      sessionStorage.setItem(SK_USERNAME, data.username.trim());
-      toast.success("Đã gửi OTP tới email của bạn");
+      toast.success("Nếu email tồn tại, bạn sẽ nhận được mã OTP");
       setStep(2);
     } catch (e) {
-      toast.error(e.response?.data?.error || "Không thể gửi OTP");
+      toast.error(e.response?.data?.error || "Không thể gửi yêu cầu");
     } finally {
       setLoading(false);
     }
@@ -88,7 +82,7 @@ export default function Register() {
     }
     setLoading(true);
     try {
-      const res = await authAPI.signupVerifyOTP({
+      const res = await authAPI.passwordResetVerify({
         email,
         code: data.code.trim(),
       });
@@ -111,25 +105,23 @@ export default function Register() {
     }
     setLoading(true);
     try {
-      await authAPI.signupComplete({
+      await authAPI.passwordResetComplete({
         setup_token: token,
         password: data.password,
       });
       sessionStorage.removeItem(SK_EMAIL);
-      sessionStorage.removeItem(SK_USERNAME);
       sessionStorage.removeItem(SK_SETUP);
-      toast.success("Tạo tài khoản thành công — vui lòng đăng nhập");
+      toast.success("Đã đặt lại mật khẩu — vui lòng đăng nhập");
       nav("/login", { replace: true });
     } catch (e) {
-      toast.error(e.response?.data?.error || "Không thể hoàn tất đăng ký");
+      toast.error(e.response?.data?.error || "Không thể đặt lại mật khẩu");
     } finally {
       setLoading(false);
     }
   };
 
-  const clearSignupSession = () => {
+  const clearResetSession = () => {
     sessionStorage.removeItem(SK_EMAIL);
-    sessionStorage.removeItem(SK_USERNAME);
     sessionStorage.removeItem(SK_SETUP);
     setStep(1);
   };
@@ -139,12 +131,11 @@ export default function Register() {
   return (
     <AuthCardShell>
       <Typography variant="h5" component="h1" gutterBottom>
-        Tạo tài khoản
+        Quên mật khẩu
       </Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-        Đã có tài khoản?{" "}
         <Link component={RouterLink} to="/login" fontWeight={600}>
-          Đăng nhập
+          Quay lại đăng nhập
         </Link>
       </Typography>
 
@@ -159,14 +150,6 @@ export default function Register() {
       {step === 1 && (
         <Box component="form" onSubmit={form1.handleSubmit(onStep1)} noValidate>
           <Stack spacing={2.5}>
-            <TextField
-              label="Tên đăng nhập"
-              autoComplete="username"
-              fullWidth
-              error={!!form1.formState.errors.username}
-              helperText={form1.formState.errors.username?.message}
-              {...form1.register("username")}
-            />
             <TextField
               label="Email"
               type="email"
@@ -187,7 +170,7 @@ export default function Register() {
               {loading ? (
                 <CircularProgress size={22} color="inherit" aria-label="Đang gửi" />
               ) : (
-                "Tiếp tục — nhận OTP"
+                "Gửi mã OTP"
               )}
             </Button>
           </Stack>
@@ -227,7 +210,7 @@ export default function Register() {
                 "Xác nhận OTP"
               )}
             </Button>
-            <Button type="button" variant="text" onClick={clearSignupSession} sx={{ textTransform: "none" }}>
+            <Button type="button" variant="text" onClick={clearResetSession} sx={{ textTransform: "none" }}>
               Quay lại đổi email
             </Button>
           </Stack>
@@ -238,10 +221,10 @@ export default function Register() {
         <Box component="form" onSubmit={form3.handleSubmit(onStep3)} noValidate>
           <Stack spacing={2.5}>
             <Typography variant="body2" color="text.secondary">
-              Đặt mật khẩu cho tài khoản của bạn.
+              Nhập mật khẩu mới.
             </Typography>
             <TextField
-              label="Mật khẩu"
+              label="Mật khẩu mới"
               type="password"
               autoComplete="new-password"
               fullWidth
@@ -267,9 +250,9 @@ export default function Register() {
               sx={{ py: 1.25, textTransform: "none", fontWeight: 600 }}
             >
               {loading ? (
-                <CircularProgress size={22} color="inherit" aria-label="Đang tạo" />
+                <CircularProgress size={22} color="inherit" aria-label="Đang lưu" />
               ) : (
-                "Hoàn tất đăng ký"
+                "Đặt lại mật khẩu"
               )}
             </Button>
           </Stack>

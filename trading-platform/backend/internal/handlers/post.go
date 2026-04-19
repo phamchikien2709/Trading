@@ -2,8 +2,10 @@ package handlers
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"trading-platform/internal/database"
 	"trading-platform/internal/models"
@@ -11,6 +13,17 @@ import (
 	"github.com/labstack/echo/v4"
 	"gorm.io/gorm"
 )
+
+func postIsAnalysis(analysisType string) bool {
+	return strings.ToLower(strings.TrimSpace(analysisType)) != "news"
+}
+
+func feedSortKeys(post models.Post) (ia int, ex float64) {
+	if postIsAnalysis(post.AnalysisType) {
+		return 1, post.User.ExpertRatingAvg
+	}
+	return 0, 0
+}
 
 func GetNewsfeed(c echo.Context) error {
 	userID := c.Get("user_id").(uint)
@@ -25,19 +38,34 @@ func GetNewsfeed(c echo.Context) error {
 		afterID = uint(v)
 	}
 
+	const iaExpr = `CASE WHEN LOWER(TRIM(COALESCE(posts.analysis_type, ''))) = 'news' THEN 0 ELSE 1 END`
+	const exExpr = `CASE WHEN LOWER(TRIM(COALESCE(posts.analysis_type, ''))) = 'news' THEN 0 ELSE COALESCE(feed_author.expert_rating_avg, 0) END`
+
 	q := database.DB.Preload("User").Model(&models.Post{}).
-		Order("created_at DESC, id DESC").
+		Joins("LEFT JOIN users AS feed_author ON feed_author.id = posts.user_id").
+		Order(iaExpr + " DESC").
+		Order(exExpr + " DESC").
+		Order("posts.created_at DESC, posts.id DESC").
 		Limit(pageSize + 1)
 
 	if afterID > 0 {
 		var cursor models.Post
-		if err := database.DB.Model(&models.Post{}).Where("id = ?", afterID).First(&cursor).Error; err != nil {
+		if err := database.DB.Preload("User").Where("id = ?", afterID).First(&cursor).Error; err != nil {
 			if err == gorm.ErrRecordNotFound {
 				return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid cursor"})
 			}
 			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "could not load feed"})
 		}
-		q = q.Where("(created_at < ? OR (created_at = ? AND id < ?))", cursor.CreatedAt, cursor.CreatedAt, cursor.ID)
+		iaC, exC := feedSortKeys(cursor)
+		q = q.Where(`(
+  (`+iaExpr+`) < ? OR (
+    (`+iaExpr+`) = ? AND (`+exExpr+`) < ? OR (
+      (`+iaExpr+`) = ? AND (`+exExpr+`) = ? AND (
+        posts.created_at < ? OR (posts.created_at = ? AND posts.id < ?)
+      )
+    )
+  )
+)`, iaC, iaC, exC, iaC, exC, cursor.CreatedAt, cursor.CreatedAt, cursor.ID)
 	}
 
 	var posts []models.Post
@@ -124,6 +152,14 @@ func LikePost(c echo.Context) error {
 	postID := uint(postID64)
 	userID := c.Get("user_id").(uint)
 
+	var post models.Post
+	if err := database.DB.Select("id", "user_id").First(&post, postID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return c.JSON(http.StatusNotFound, map[string]string{"error": "post not found"})
+		}
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "could not load post"})
+	}
+
 	var exists int64
 	database.DB.Model(&models.Like{}).Where("user_id = ? AND post_id = ?", userID, postID).Count(&exists)
 	if exists > 0 {
@@ -139,6 +175,13 @@ func LikePost(c echo.Context) error {
 	})
 	if err != nil {
 		return c.JSON(http.StatusConflict, map[string]string{"error": "already liked"})
+	}
+	if post.UserID != userID {
+		var actor models.User
+		if err := database.DB.Select("username").First(&actor, userID).Error; err == nil {
+			pid := postID
+			enqueueNotification(post.UserID, "like", fmt.Sprintf("%s đã thích bài viết của bạn", actor.Username), userID, &pid)
+		}
 	}
 	return c.JSON(http.StatusOK, map[string]string{"message": "liked successfully"})
 }
@@ -179,7 +222,8 @@ func AddComment(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "content required"})
 	}
 
-	if err := database.DB.First(&models.Post{}, postID).Error; err != nil {
+	var post models.Post
+	if err := database.DB.First(&post, postID).Error; err != nil {
 		return c.JSON(http.StatusNotFound, map[string]string{"error": "post not found"})
 	}
 
@@ -201,6 +245,13 @@ func AddComment(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "could not add comment"})
 	}
 	database.DB.Preload("User").First(&comment, comment.ID)
+	if post.UserID != userID {
+		var actor models.User
+		if err := database.DB.Select("username").First(&actor, userID).Error; err == nil {
+			pid := postID
+			enqueueNotification(post.UserID, "comment", fmt.Sprintf("%s đã bình luận bài viết của bạn", actor.Username), userID, &pid)
+		}
+	}
 	return c.JSON(http.StatusCreated, comment)
 }
 

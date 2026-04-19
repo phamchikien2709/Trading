@@ -39,11 +39,21 @@ func main() {
 		return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
 	})
 
-	e.POST("/api/register", handlers.Register)
 	e.POST("/api/login", handlers.Login)
+	e.POST("/api/auth/signup/request", handlers.SignupRequestOTP)
+	e.POST("/api/auth/signup/verify", handlers.SignupVerifyOTP)
+	e.POST("/api/auth/signup/complete", handlers.SignupComplete)
+	e.POST("/api/auth/password-reset/request", handlers.PasswordResetRequestOTP)
+	e.POST("/api/auth/password-reset/verify", handlers.PasswordResetVerifyOTP)
+	e.POST("/api/auth/password-reset/complete", handlers.PasswordResetComplete)
 
 	api := e.Group("/api")
 	api.Use(authmw.AuthMiddleware)
+	api.GET("/journal-checklist-templates", handlers.ListJournalChecklistTemplates)
+	api.GET("/journal-checklist-templates/:id", handlers.GetJournalChecklistTemplate)
+	api.POST("/journal-checklist-templates", handlers.CreateJournalChecklistTemplate)
+	api.DELETE("/journal-checklist-templates/:id", handlers.DeleteJournalChecklistTemplate)
+
 	api.GET("/journals", handlers.GetUserJournals)
 	api.POST("/journals", handlers.CreateJournal)
 	api.PUT("/journals/:id", handlers.UpdateJournal)
@@ -60,8 +70,15 @@ func main() {
 
 	api.GET("/profile", handlers.GetProfile)
 	api.PUT("/profile", handlers.UpdateProfile)
+	api.GET("/users/:id", handlers.GetPublicUser)
+	api.POST("/users/:id/expert-rating", handlers.SetExpertRating)
 	api.POST("/follow/:id", handlers.FollowUser)
 	api.DELETE("/follow/:id", handlers.UnfollowUser)
+
+	api.GET("/notifications/unread-count", handlers.UnreadNotificationCount)
+	api.GET("/notifications", handlers.ListNotifications)
+	api.POST("/notifications/read-all", handlers.MarkAllNotificationsRead)
+	api.POST("/notifications/:id/read", handlers.MarkNotificationRead)
 
 	port := os.Getenv("PORT")
 	if port == "" {

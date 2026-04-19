@@ -31,6 +31,14 @@ func CreateJournal(c echo.Context) error {
 	if err := c.Bind(&journal); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
 	}
+	if journal.ChecklistTemplateID == nil || *journal.ChecklistTemplateID == 0 {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "cần chọn checklist"})
+	}
+	snap, err := normalizeChecklistAgainstTemplate(userID, *journal.ChecklistTemplateID, journal.ChecklistSnapshot)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+	}
+	journal.ChecklistSnapshot = snap
 	journal.UserID = userID
 	journalPnL(&journal)
 	if err := database.DB.Create(&journal).Error; err != nil {
@@ -59,7 +67,7 @@ func UpdateJournal(c echo.Context) error {
 	updates.UserID = journal.UserID
 	journalPnL(&updates)
 
-	database.DB.Model(&journal).Updates(map[string]any{
+	patch := map[string]any{
 		"symbol":         updates.Symbol,
 		"direction":      updates.Direction,
 		"entry_price":    updates.EntryPrice,
@@ -69,7 +77,19 @@ func UpdateJournal(c echo.Context) error {
 		"screenshot_url": updates.ScreenshotURL,
 		"notes":          updates.Notes,
 		"traded_at":      updates.TradedAt,
-	})
+	}
+	if len(updates.ChecklistSnapshot) > 0 {
+		if updates.ChecklistTemplateID == nil || *updates.ChecklistTemplateID == 0 {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "cần checklist_template_id khi cập nhật checklist"})
+		}
+		snap, err := normalizeChecklistAgainstTemplate(userID, *updates.ChecklistTemplateID, updates.ChecklistSnapshot)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		}
+		patch["checklist_template_id"] = *updates.ChecklistTemplateID
+		patch["checklist_snapshot"] = snap
+	}
+	database.DB.Model(&journal).Updates(patch)
 	database.DB.First(&journal, id)
 	return c.JSON(http.StatusOK, journal)
 }

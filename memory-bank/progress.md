@@ -3,7 +3,7 @@
 ## Working
 
 - Spec: `ImplementFullProject.txt`; memory bank under `memory-bank/`.
-- App code: `trading-platform/backend` (JWT, journals, posts, feed, likes, comments, follow, profile) + `trading-platform/frontend` (login/register, dashboard, journal, feed, create post, profile).
+- App code: `trading-platform/backend` (JWT, **đăng ký / quên MK qua OTP** (`/api/auth/...`), journals, posts, feed, likes, comments, follow, profile, **public user + expert ratings**, feed ưu tiên bài phân tích theo điểm chuyên gia) + `trading-platform/frontend` (login, đăng ký 3 bước OTP, quên mật khẩu, dashboard, journal, feed, create post, profile + `/profile/:userId`, đánh giá sao).
 - Frontend: **MUI 6**-based screens; shared **`tradingListCard`** styling for feed posts and journal list; **post detail** comments support multiline text and refreshed layout.
 - `npm run build` succeeds for frontend.
 - `docker-compose.yml` + Dockerfiles + `trading-platform/README.md`.

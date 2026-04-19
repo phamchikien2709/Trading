@@ -69,13 +69,19 @@ export default function Feed() {
 
   const likeM = useMutation({
     mutationFn: (id) => postAPI.like(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['feed'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['feed'] })
+      qc.invalidateQueries({ queryKey: ['notificationsUnread'] })
+    },
     onError: (e) => toast.error(e.response?.data?.error || 'Thao tác thích thất bại'),
   })
 
   const unlikeM = useMutation({
     mutationFn: (id) => postAPI.unlike(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['feed'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['feed'] })
+      qc.invalidateQueries({ queryKey: ['notificationsUnread'] })
+    },
   })
 
   const deletePostM = useMutation({
